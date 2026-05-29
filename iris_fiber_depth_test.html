@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<title>Iris Fiber Depth — Test</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #06060e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  gap: 36px;
+  font-family: 'Courier New', monospace;
+}
+canvas { display: block; }
+
+#panel {
+  color: #aaa;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 210px;
+}
+.title  { color: #cc99ff; font-size: 12px; letter-spacing: 2px; margin-bottom: 4px; }
+.sep    { border-top: 1px solid #22223a; margin: 4px 0; }
+.group  { display: flex; flex-direction: column; gap: 6px; }
+.glabel { color: #8866bb; font-size: 10px; letter-spacing: 1px; }
+.row    { display: flex; align-items: center; gap: 8px; }
+.row label { min-width: 80px; color: #888; }
+input[type=range] { flex: 1; height: 3px; accent-color: #8866cc; cursor: pointer; }
+input[type=checkbox] { accent-color: #8866cc; cursor: pointer; }
+.val { min-width: 28px; color: #6655aa; text-align: right; }
+.mx {
+  width: 38px; background: #0d0d1a; border: 1px solid #2a2240;
+  color: #6655aa; font-size: 10px; font-family: inherit;
+  text-align: center; border-radius: 3px; padding: 1px 2px;
+  flex-shrink: 0;
+}
+.mx:focus { outline: 1px solid #6644aa; }
+
+.layer-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; border-radius: 4px;
+  border: 1px solid #1e1e2e;
+  background: #0d0d1a;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.layer-row span { flex: 1; }
+
+/* gooey section highlight */
+.goo-box {
+  border: 1px solid #3a2255;
+  border-radius: 5px;
+  padding: 8px;
+  background: #0e0816;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.goo-header {
+  display: flex; align-items: center; gap: 8px;
+}
+.goo-title { color: #cc88ff; font-size: 10px; letter-spacing: 1px; flex: 1; }
+
+/* color swatch */
+.swatch {
+  width: 26px; height: 14px; border-radius: 3px;
+  border: 1px solid #4a3060;
+  position: relative; overflow: hidden; cursor: pointer; flex-shrink: 0;
+}
+.swatch input[type=color] {
+  position: absolute; left: -4px; top: -4px;
+  width: calc(100% + 8px); height: calc(100% + 8px);
+  opacity: 0; cursor: pointer; border: none;
+}
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="panel">
+  <div class="title">FIBER DEPTH TEST</div>
+
+  <!-- Layer toggles -->
+  <div class="group">
+    <div class="glabel">LAYERS</div>
+    <div class="layer-row">
+      <div class="dot" style="background:#1a1840;border:1px solid #3a3060"></div>
+      <span>Deep  <small style="color:#555">dark / blurred</small></span>
+      <input type="checkbox" id="ck0" checked>
+    </div>
+    <div class="layer-row">
+      <div class="dot" style="background:#2a4080;border:1px solid #4060a0"></div>
+      <span>Mid</span>
+      <input type="checkbox" id="ck1" checked>
+    </div>
+    <div class="layer-row">
+      <div class="dot" style="background:#60a0d8;border:1px solid #80c0f0"></div>
+      <span>Surface  <small style="color:#555">bright / sway</small></span>
+      <input type="checkbox" id="ck2" checked>
+    </div>
+  </div>
+
+  <div class="sep"></div>
+
+  <!-- Gooey controls -->
+  <div class="goo-box">
+    <div class="goo-header">
+      <div class="goo-title">GOOEY — surface</div>
+      <div class="swatch" id="goo-swatch" style="background:#a060f0">
+        <input type="color" id="goo-color" value="#a060f0">
+      </div>
+      <input type="checkbox" id="ck-goo" checked>
+    </div>
+    <div class="row">
+      <label>Blob</label>
+      <input type="range" id="sl_blob" min="1" max="40" value="10">
+      <span class="val" id="v_blob">10</span>
+      <input type="number" class="mx" id="mx_blob" value="40" min="1">
+    </div>
+    <div class="row">
+      <label>Blur</label>
+      <input type="range" id="sl_gblur" min="1" max="30" value="8">
+      <span class="val" id="v_gblur">8</span>
+      <input type="number" class="mx" id="mx_gblur" value="30" min="1">
+    </div>
+    <div class="row">
+      <label>Stick</label>
+      <input type="range" id="sl_stick" min="4" max="40" value="14">
+      <span class="val" id="v_stick">14</span>
+      <input type="number" class="mx" id="mx_stick" value="40" min="1">
+    </div>
+    <div class="row">
+      <label>Opacity</label>
+      <input type="range" id="sl_gopc" min="5" max="100" value="72">
+      <span class="val" id="v_gopc">72</span>
+      <input type="number" class="mx" id="mx_gopc" value="100" min="1">
+    </div>
+  </div>
+
+  <div class="sep"></div>
+
+  <!-- Fiber params -->
+  <div class="group">
+    <div class="glabel">FIBER</div>
+    <div class="row">
+      <label>Count</label>
+      <input type="range" id="sl_count" min="1" max="700" value="380">
+      <span class="val" id="v_count">380</span>
+      <input type="number" class="mx" id="mx_count" value="700" min="1">
+    </div>
+    <div class="row">
+      <label>Curl</label>
+      <input type="range" id="sl_curl" min="0" max="100" value="40">
+      <span class="val" id="v_curl">40</span>
+      <input type="number" class="mx" id="mx_curl" value="100" min="0">
+    </div>
+    <div class="row">
+      <label>Deep blur</label>
+      <input type="range" id="sl_blur" min="0" max="30" value="10">
+      <span class="val" id="v_blur">10</span>
+      <input type="number" class="mx" id="mx_blur" value="30" min="0">
+    </div>
+  </div>
+
+  <div class="sep"></div>
+
+  <!-- Animation -->
+  <div class="group">
+    <div class="glabel">ANIMATION</div>
+    <div class="row">
+      <label>Sway speed</label>
+      <input type="range" id="sl_speed" min="0" max="100" value="25">
+      <span class="val" id="v_speed">25</span>
+      <input type="number" class="mx" id="mx_speed" value="100" min="0">
+    </div>
+    <div class="row">
+      <label>Sway amp</label>
+      <input type="range" id="sl_amp" min="0" max="100" value="40">
+      <span class="val" id="v_amp">40</span>
+      <input type="number" class="mx" id="mx_amp" value="100" min="0">
+    </div>
+  </div>
+</div>
+
+<script>
+const W = 480, H = 480;
+const cvs = document.getElementById('c');
+cvs.width = W; cvs.height = H;
+const ctx = cvs.getContext('2d');
+const cx = W / 2, cy = H / 2;
+const R  = 218;
+const pR = 70;
+const TAU = Math.PI * 2;
+
+// ── Seeded PRNG ──────────────────────────────────────────────────────────────
+function makeRand(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+    return (s >>> 0) / 4294967296;
+  };
+}
+
+// ── Offscreen canvases for gooey metaball ────────────────────────────────────
+function mkOff() {
+  const el = document.createElement('canvas');
+  el.width = W; el.height = H;
+  return [el, el.getContext('2d')];
+}
+const [rawC, rawX]   = mkOff();  // white strokes
+const [bakeC, bakeX] = mkOff();  // blur+contrast threshold
+
+// ── Params ───────────────────────────────────────────────────────────────────
+let FIBER_N  = 380;
+let curlAmt  = 0.40;
+let deepBlur = 1.0;
+let swaySpd  = 0.0025;
+let swayAmp  = 0.018;
+const layerVis = [true, true, true];
+
+const goo = {
+  on:      true,
+  color:   '#a060f0',
+  blob:    10,
+  blur:    8,
+  stick:   14,
+  opacity: 0.72,
+};
+
+// Layer rendering config [deep, mid, surface]
+const LAYERS = [
+  { alpha: 0.20, lw: 0.70, h: 242, s: 48, l: 20 },
+  { alpha: 0.44, lw: 0.46, h: 228, s: 58, l: 38 },
+  { alpha: 0.82, lw: 0.26, h: 205, s: 72, l: 66 },
+];
+
+// ── Fiber generation ─────────────────────────────────────────────────────────
+let fibers = [];
+function genFibers() {
+  const rand = makeRand(2025);
+  const arr  = [];
+  for (let i = 0; i < FIBER_N; i++) {
+    const depth = i < FIBER_N * 0.25 ? 0
+                : i < FIBER_N * 0.60 ? 1
+                : 2;
+    arr.push({
+      angle:  rand() * TAU,
+      startR: pR + 10 + rand() * (depth === 0 ? 8 : 16),
+      endR:   R  - 6  - rand() * (depth === 0 ? 24 : 12),
+      cpOff:  (rand() - 0.5) * curlAmt * 0.55,
+      cpT:    0.2 + rand() * 0.6,
+      hShift: (rand() - 0.5) * 35,
+      lShift: (rand() - 0.5) * 20,
+      phase:  rand() * TAU,
+      depth,
+    });
+  }
+  fibers = arr.sort((a, b) => a.depth - b.depth);
+}
+genFibers();
+
+// ── Fiber geometry helper ────────────────────────────────────────────────────
+function fiberPath(xctx, f, sway) {
+  const angle = f.angle + sway;
+  const sx = cx + Math.cos(angle) * f.startR;
+  const sy = cy + Math.sin(angle) * f.startR;
+  const ex = cx + Math.cos(angle) * f.endR;
+  const ey = cy + Math.sin(angle) * f.endR;
+  const cpA = angle + f.cpOff;
+  const cpRr = f.startR + (f.endR - f.startR) * f.cpT;
+  const cpx = cx + Math.cos(cpA) * cpRr;
+  const cpy = cy + Math.sin(cpA) * cpRr;
+  xctx.beginPath();
+  xctx.moveTo(sx, sy);
+  xctx.quadraticCurveTo(cpx, cpy, ex, ey);
+}
+
+// ── Gooey metaball render ────────────────────────────────────────────────────
+function renderGooey(surfFibers) {
+  // 1. White strokes on raw canvas
+  rawX.clearRect(0, 0, W, H);
+  rawX.strokeStyle = 'white';
+  rawX.fillStyle   = 'white';
+  rawX.lineWidth   = goo.blob;
+  rawX.lineCap     = 'round';
+  rawX.lineJoin    = 'round';
+
+  for (const f of surfFibers) {
+    const sway = Math.sin(t * swaySpd + f.phase) * swayAmp;
+    fiberPath(rawX, f, sway);
+    rawX.stroke();
+    // Extra mass dot at tip for stronger merge field
+    const angle = f.angle + sway;
+    const tx = cx + Math.cos(angle) * f.endR;
+    const ty = cy + Math.sin(angle) * f.endR;
+    rawX.beginPath();
+    rawX.arc(tx, ty, goo.blob * 0.65, 0, TAU);
+    rawX.fill();
+  }
+
+  // 2. Blur + contrast threshold → sharp metaball silhouette
+  bakeX.clearRect(0, 0, W, H);
+  bakeX.filter = `blur(${goo.blur}px) contrast(${goo.stick})`;
+  bakeX.drawImage(rawC, 0, 0);
+  bakeX.filter = 'none';
+
+  // 3. Colorize silhouette (source-atop stays inside blob shape)
+  bakeX.globalCompositeOperation = 'source-atop';
+  bakeX.fillStyle = goo.color;
+  bakeX.fillRect(0, 0, W, H);
+
+  // 4. Glossy sheen
+  const gloss = bakeX.createLinearGradient(50, 50, W - 50, H - 50);
+  gloss.addColorStop(0,    'rgba(255,255,255,0.40)');
+  gloss.addColorStop(0.35, 'rgba(255,255,255,0.06)');
+  gloss.addColorStop(1,    'rgba(0,0,0,0.18)');
+  bakeX.fillStyle = gloss;
+  bakeX.fillRect(0, 0, W, H);
+  bakeX.globalCompositeOperation = 'source-over';
+
+  // 5. Composite to main (iris clip is active at call site)
+  ctx.save();
+  ctx.globalAlpha = goo.opacity;
+  ctx.drawImage(bakeC, 0, 0);
+  ctx.restore();
+}
+
+// ── Main draw ────────────────────────────────────────────────────────────────
+let t = 0;
+
+function drawIris() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  // Iris clip
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, TAU);
+  ctx.clip();
+
+  // Base gradient
+  const bg = ctx.createRadialGradient(cx, cy, pR * 0.85, cx, cy, R);
+  bg.addColorStop(0,    'hsl(258,55%,12%)');
+  bg.addColorStop(0.22, 'hsl(245,52%,16%)');
+  bg.addColorStop(0.65, 'hsl(228,46%,10%)');
+  bg.addColorStop(1,    'hsl(238,40%,5%)');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Gather surface fibers once (shared between thin pass + gooey pass)
+  const surfFibers = fibers.filter(f => f.depth === 2);
+
+  // Draw deep + mid layers (thin, direct)
+  for (let li = 0; li < 2; li++) {
+    if (!layerVis[li]) continue;
+    const lyr = LAYERS[li];
+    const lf  = fibers.filter(f => f.depth === li);
+    ctx.save();
+    if (li === 0 && deepBlur > 0) ctx.filter = `blur(${deepBlur}px)`;
+    ctx.lineCap   = 'round';
+    ctx.lineWidth = lyr.lw;
+    for (const f of lf) {
+      fiberPath(ctx, f, 0); // deep/mid don't sway
+      const h = lyr.h + f.hShift;
+      const l = Math.max(5, lyr.l + f.lShift);
+      ctx.strokeStyle = `hsla(${h},${lyr.s}%,${l}%,${lyr.alpha})`;
+      ctx.stroke();
+    }
+    ctx.filter = 'none';
+    ctx.restore();
+  }
+
+  // Gooey metaball pass (drawn between mid and surface thin fibers)
+  if (goo.on) renderGooey(surfFibers);
+
+  // Surface thin fibers on top of gooey blobs (give hair-like detail)
+  if (layerVis[2]) {
+    const lyr = LAYERS[2];
+    ctx.save();
+    ctx.lineCap   = 'round';
+    ctx.lineWidth = lyr.lw;
+    for (const f of surfFibers) {
+      const sway = Math.sin(t * swaySpd + f.phase) * swayAmp;
+      fiberPath(ctx, f, sway);
+      const h = lyr.h + f.hShift;
+      const l = Math.max(5, lyr.l + f.lShift);
+      ctx.strokeStyle = `hsla(${h},${lyr.s}%,${l}%,${lyr.alpha})`;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Limbal ring
+  const limb = ctx.createRadialGradient(cx, cy, R * 0.80, cx, cy, R);
+  limb.addColorStop(0, 'rgba(0,0,0,0)');
+  limb.addColorStop(1, 'rgba(0,0,0,0.80)');
+  ctx.fillStyle = limb;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.restore(); // end iris clip
+
+  // Pupil
+  const pg = ctx.createRadialGradient(cx, cy, 0, cx, cy, pR);
+  pg.addColorStop(0.5, '#090910');
+  pg.addColorStop(1,   '#000');
+  ctx.beginPath();
+  ctx.arc(cx, cy, pR, 0, TAU);
+  ctx.fillStyle = pg;
+  ctx.fill();
+
+  // Pupillary margin glow
+  const pe = ctx.createRadialGradient(cx, cy, pR - 2, cx, cy, pR + 10);
+  pe.addColorStop(0, 'rgba(110,55,200,0.55)');
+  pe.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, pR + 10, 0, TAU);
+  ctx.fillStyle = pe;
+  ctx.fill();
+
+  // Specular
+  const sg = ctx.createRadialGradient(cx - R*0.28, cy - R*0.28, 0, cx - R*0.28, cy - R*0.28, R*0.22);
+  sg.addColorStop(0,   'rgba(255,255,255,0.18)');
+  sg.addColorStop(0.4, 'rgba(255,255,255,0.04)');
+  sg.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, TAU);
+  ctx.fillStyle = sg;
+  ctx.fill();
+
+  t++;
+  requestAnimationFrame(drawIris);
+}
+
+drawIris();
+
+// ── UI wiring ────────────────────────────────────────────────────────────────
+// wire(sliderId, valId, maxId, initVal, cb)
+// maxId may be null if no max input exists
+function wire(id, valId, maxId, init, cb) {
+  const sl = document.getElementById(id);
+  const vl = document.getElementById(valId);
+  sl.value = init;
+  vl.textContent = init;
+  sl.addEventListener('input', () => { vl.textContent = sl.value; cb(+sl.value); });
+
+  if (!maxId) return;
+  const mx = document.getElementById(maxId);
+  mx.addEventListener('change', () => {
+    const newMax = Math.max(+mx.value, +sl.min || 0);
+    mx.value  = newMax;
+    sl.max    = newMax;
+    // clamp current value if it exceeds new max
+    if (+sl.value > newMax) { sl.value = newMax; vl.textContent = newMax; cb(newMax); }
+  });
+}
+
+wire('sl_count', 'v_count', 'mx_count', 380, v => { FIBER_N = v; genFibers(); });
+wire('sl_curl',  'v_curl',  'mx_curl',   40, v => { curlAmt  = v / 100; genFibers(); });
+wire('sl_blur',  'v_blur',  'mx_blur',   10, v => { deepBlur = v / 10; });
+wire('sl_speed', 'v_speed', 'mx_speed',  25, v => { swaySpd  = v / 10000; });
+wire('sl_amp',   'v_amp',   'mx_amp',    40, v => { swayAmp  = v / 2200; });
+
+wire('sl_blob',  'v_blob',  'mx_blob',   10, v => { goo.blob    = v; });
+wire('sl_gblur', 'v_gblur', 'mx_gblur',   8, v => { goo.blur    = v; });
+wire('sl_stick', 'v_stick', 'mx_stick',  14, v => { goo.stick   = v; });
+wire('sl_gopc',  'v_gopc',  'mx_gopc',   72, v => { goo.opacity = v / 100; });
+
+document.getElementById('ck0').addEventListener('change', e => layerVis[0] = e.target.checked);
+document.getElementById('ck1').addEventListener('change', e => layerVis[1] = e.target.checked);
+document.getElementById('ck2').addEventListener('change', e => layerVis[2] = e.target.checked);
+document.getElementById('ck-goo').addEventListener('change', e => { goo.on = e.target.checked; });
+
+// Color picker → swatch sync
+const gooColorInput  = document.getElementById('goo-color');
+const gooSwatch      = document.getElementById('goo-swatch');
+gooColorInput.addEventListener('input', () => {
+  goo.color = gooColorInput.value;
+  gooSwatch.style.background = gooColorInput.value;
+});
+</script>
+</body>
+</html>

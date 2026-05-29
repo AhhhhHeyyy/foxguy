@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Foxguy</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        background: #000;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        overflow: hidden;
+      }
+      #app canvas {
+        height: 100vh;
+        width: auto;
+        display: block;
+      }
+      #webcam {
+        position: fixed;
+        top: -9999px;
+        left: -9999px;
+        width: 640px;
+        height: 480px;
+      }
+      #debug-canvas {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        width: 320px;
+        height: 240px;
+        border: 1px solid rgba(0, 200, 255, 0.8);
+        border-radius: 4px;
+        z-index: 9999;
+        background: rgba(0, 0, 0, 0.85);
+        image-rendering: pixelated;
+      }
+      #layer-panel {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        z-index: 9999;
+        background: rgba(0, 0, 0, 0.85);
+        border: 1px solid rgba(0, 200, 255, 0.8);
+        border-radius: 4px;
+        padding: 10px 14px;
+        font-family: monospace;
+        color: #00e5ff;
+        min-width: 220px;
+        max-height: 90vh;
+        overflow-y: auto;
+        user-select: none;
+      }
+      .lp-title {
+        font-size: 13px;
+        font-weight: bold;
+        margin-bottom: 8px;
+        color: #00e5ff;
+        letter-spacing: 0.05em;
+      }
+      .lp-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        padding: 3px 0;
+        cursor: pointer;
+        color: #b0f0ff;
+      }
+      .lp-row input[type="checkbox"] {
+        accent-color: #00e5ff;
+        width: 14px;
+        height: 14px;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      .lp-filter-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 0;
+      }
+      .lp-filter-indented {
+        padding-left: 22px;
+      }
+      .lp-filter-row input[type="checkbox"] {
+        accent-color: #ff9800;
+        width: 12px;
+        height: 12px;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      .lp-filter-label {
+        font-size: 11px;
+        color: #ffcc80;
+        width: 60px;
+      }
+      .lp-filter-slider {
+        width: 72px;
+        accent-color: #ff9800;
+        cursor: pointer;
+      }
+      .lp-filter-slider:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+      }
+      .lp-max-input {
+        width: 46px;
+        background: #111;
+        border: 1px solid rgba(0, 200, 255, 0.3);
+        color: #00e5ff;
+        font-family: monospace;
+        font-size: 11px;
+        padding: 1px 4px;
+        border-radius: 3px;
+        text-align: right;
+        margin-left: 4px;
+      }
+      .lp-max-input:focus { outline: none; border-color: rgba(0,200,255,0.7); }
+      .lp-divider {
+        border-top: 1px solid rgba(0, 200, 255, 0.25);
+        margin: 7px 0 5px;
+      }
+      .lp-stage-label {
+        font-size: 11px;
+        color: rgba(0, 229, 255, 0.6);
+        margin-bottom: 3px;
+        letter-spacing: 0.04em;
+      }
+      .lp-hint {
+        margin-top: 8px;
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.3);
+      }
+    </style>
+  </head>
+  <body>
+    <video id="webcam" autoplay playsinline muted></video>
+    <div id="app"></div>
+    <canvas id="debug-canvas" width="320" height="240"></canvas>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

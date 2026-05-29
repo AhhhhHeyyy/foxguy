@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0e0e12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-family: 'Courier New', monospace;
+}
+canvas { display: block; }
+
+#mixer {
+  position: fixed;
+  left: 0; top: 0; bottom: 0;
+  width: 218px;
+  background: #141418;
+  border-right: 1px solid #2a2a35;
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  transition: transform 0.2s ease;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+#mixer.hidden { transform: translateX(-100%); }
+#mixer::-webkit-scrollbar { width: 3px; }
+#mixer::-webkit-scrollbar-track { background: #141418; }
+#mixer::-webkit-scrollbar-thumb { background: #2e2a3e; border-radius: 2px; }
+
+#mixer-header {
+  padding: 12px 14px 10px;
+  color: #6a5a7a;
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  border-bottom: 1px solid #222228;
+  flex-shrink: 0;
+}
+#mixer-header span { color: #9b70c0; }
+
+.channel {
+  display: flex;
+  align-items: center;
+  padding: 7px 12px;
+  gap: 9px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.12s;
+  user-select: none;
+  flex-shrink: 0;
+}
+.channel:hover { background: #1e1e28; }
+.channel.on { border-left-color: #8040b0; }
+
+.ch-toggle {
+  width: 15px; height: 15px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid #444;
+  border-radius: 3px;
+  background: #202028;
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+  transition: background 0.12s, border-color 0.12s;
+}
+.ch-toggle:checked { background: #6830a0; border-color: #9b59d0; }
+.ch-toggle:checked::after {
+  content: '';
+  position: absolute;
+  left: 3px; top: 1px;
+  width: 5px; height: 8px;
+  border: 1.5px solid #e0b8ff;
+  border-top: none; border-left: none;
+  transform: rotate(45deg);
+}
+
+.ch-info { flex: 1; overflow: hidden; }
+.ch-name { font-size: 10px; color: #c8a8e8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-sub  { font-size: 8px;  color: #5a4a6a; margin-top: 1px; }
+.ch-divider { height: 1px; background: #1e1e26; margin: 3px 0; flex-shrink: 0; }
+
+/* petal FX panel */
+.ch-fx {
+  background: #0f0f14;
+  border-left: 3px solid #5018a0;
+  padding: 5px 12px 9px 14px;
+  flex-shrink: 0;
+}
+.fx-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+}
+.fx-lbl {
+  font-size: 8px;
+  color: #5a3a7a;
+  width: 22px;
+  letter-spacing: 1px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+.fx-slider {
+  flex: 1;
+  min-width: 0;
+  height: 2px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #2a2a3a;
+  outline: none;
+  cursor: pointer;
+  border-radius: 1px;
+}
+.fx-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: #7030a8;
+  cursor: pointer;
+  border: 1px solid #a060d8;
+}
+.fx-slider:hover::-webkit-slider-thumb { background: #9050c8; }
+.fx-val {
+  font-size: 8px;
+  color: #5a3a7a;
+  width: 26px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.fx-mx {
+  width: 34px;
+  background: #0a0a0e;
+  border: 1px solid #2a1a3a;
+  color: #5a3a7a;
+  font-size: 8px;
+  font-family: 'Courier New', monospace;
+  text-align: center;
+  border-radius: 2px;
+  padding: 1px 2px;
+  flex-shrink: 0;
+}
+.fx-mx:focus { outline: 1px solid #5020a0; border-color: #5020a0; }
+
+/* color swatch — invisible input layered over colored div */
+.fx-swatch {
+  flex: 1;
+  height: 14px;
+  border-radius: 2px;
+  border: 1px solid #3a2a4a;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+.fx-swatch input[type="color"] {
+  position: absolute;
+  left: -4px; top: -4px;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
+  opacity: 0;
+  cursor: pointer;
+  border: none;
+}
+
+#mixer-btn {
+  position: fixed;
+  left: 10px; top: 10px;
+  background: #141418;
+  border: 1px solid #2a2a35;
+  color: #5a4a6a;
+  font-family: 'Courier New', monospace;
+  font-size: 9px;
+  letter-spacing: 2px;
+  padding: 5px 10px;
+  cursor: pointer;
+  z-index: 20;
+  text-transform: uppercase;
+  transition: color 0.15s, border-color 0.15s;
+}
+#mixer-btn:hover { color: #9b70c0; border-color: #4a3a5a; }
+</style>
+</head>
+<body>
+
+<button id="mixer-btn">FX MIXER [L]</button>
+
+<div id="mixer">
+  <div id="mixer-header">FX MIXER &nbsp;<span>◈</span></div>
+
+  <div class="channel on" data-layer="base">
+    <input class="ch-toggle" type="checkbox" checked>
+    <div class="ch-info"><div class="ch-name">Iris Base</div><div class="ch-sub">虹膜 · base gradient</div></div>
+  </div>
+  <div class="channel on" data-layer="limbal">
+    <input class="ch-toggle" type="checkbox" checked>
+    <div class="ch-info"><div class="ch-name">Limbal Ring</div><div class="ch-sub">緣環 · limb gradient</div></div>
+  </div>
+
+  <div class="ch-divider"></div>
+
+  <div class="channel on" data-layer="fibres">
+    <input class="ch-toggle" type="checkbox" checked>
+    <div class="ch-info"><div class="ch-name">Stromal Fibres</div><div class="ch-sub">基質纖維 · depth deep/mid</div></div>
+  </div>
+  <div class="ch-fx">
+    <div class="fx-row">
+      <span class="fx-lbl" title="Fiber count">CNT</span>
+      <input type="range" class="fx-slider" id="fib_count" min="20" max="700" step="10" value="350">
+      <span class="fx-val" id="fv_count">350</span>
+      <input type="number" class="fx-mx" id="fm_count" value="700" min="20">
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Curl — lateral bezier offset">CRL</span>
+      <input type="range" class="fx-slider" id="fib_curl" min="0" max="100" step="1" value="40">
+      <span class="fx-val" id="fv_curl">40</span>
+      <input type="number" class="fx-mx" id="fm_curl" value="100" min="0">
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Deep layer blur — depth-of-field feel">DBL</span>
+      <input type="range" class="fx-slider" id="fib_dblur" min="0" max="30" step="0.5" value="10">
+      <span class="fx-val" id="fv_dblur">10</span>
+      <input type="number" class="fx-mx" id="fm_dblur" value="30" min="0">
+    </div>
+  </div>
+
+  <div class="channel on" data-layer="wavy">
+    <input class="ch-toggle" type="checkbox" checked>
+    <div class="ch-info"><div class="ch-name">Surface + Gooey</div><div class="ch-sub">Crypts · depth surface / 拉絲</div></div>
+  </div>
+  <div class="ch-fx">
+    <div class="fx-row">
+      <span class="fx-lbl" title="Gooey color">CLR</span>
+      <div class="fx-swatch" id="sw-goo" style="background:#d8a8ff">
+        <input type="color" id="goo-color-pick" value="#d8a8ff">
+      </div>
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Curl — surface fiber lateral bend">CRL</span>
+      <input type="range" class="fx-slider" id="goo_curl" min="0" max="0.5" step="0.005" value="0.22">
+      <span class="fx-val" id="gv_curl">0.22</span>
+      <input type="number" class="fx-mx" id="gm_curl" value="0.5" min="0" step="0.1">
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Blob — stroke width on raw canvas">BLB</span>
+      <input type="range" class="fx-slider" id="goo_blob" min="1" max="40" step="0.5" value="6">
+      <span class="fx-val" id="gv_blob">6</span>
+      <input type="number" class="fx-mx" id="gm_blob" value="40" min="1">
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Blur radius — merge distance">BLR</span>
+      <input type="range" class="fx-slider" id="goo_blur" min="1" max="30" step="0.5" value="4.5">
+      <span class="fx-val" id="gv_blur">4.5</span>
+      <input type="number" class="fx-mx" id="gm_blur" value="30" min="1">
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Stick — contrast threshold">STK</span>
+      <input type="range" class="fx-slider" id="goo_stick" min="4" max="40" step="0.5" value="4">
+      <span class="fx-val" id="gv_stick">4</span>
+      <input type="number" class="fx-mx" id="gm_stick" value="40" min="1">
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Sway speed base — auto-modulates slowly over time">SPD</span>
+      <input type="range" class="fx-slider" id="goo_spd" min="0" max="100" step="1" value="40">
+      <span class="fx-val" id="gv_spd">40</span>
+      <input type="number" class="fx-mx" id="gm_spd" value="100" min="0">
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Sway amplitude">AMP</span>
+      <input type="range" class="fx-slider" id="goo_amp" min="0" max="100" step="1" value="40">
+      <span class="fx-val" id="gv_amp">40</span>
+      <input type="number" class="fx-mx" id="gm_amp" value="100" min="0">
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Opacity">OPC</span>
+      <input type="range" class="fx-slider" id="goo_opc" min="5" max="100" step="1" value="54">
+      <span class="fx-val" id="gv_opc">54</span>
+      <input type="number" class="fx-mx" id="gm_opc" value="100" min="5">
+    </div>
+  </div>
+
+  <div class="ch-divider"></div>
+
+  <!-- Petal Layer 1 -->
+  <div class="channel on" data-layer="petal1">
+    <input class="ch-toggle" type="checkbox" checked>
+    <div class="ch-info"><div class="ch-name">Petal Layer 1</div><div class="ch-sub">領環外瓣 · metaball 38</div></div>
+  </div>
+  <div class="ch-fx">
+    <div class="fx-row">
+      <span class="fx-lbl" title="Color">CLR</span>
+      <div class="fx-swatch" id="sw1" style="background:#c880ff">
+        <input type="color" value="#c880ff" data-fx="petal1" data-param="color">
+      </div>
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Curl — petal spread angle">CRL</span>
+      <input type="range" class="fx-slider" id="p1_curl" min="0" max="0.5" step="0.005" value="0.3">
+      <span class="fx-val" id="pv1_curl">0.09</span>
+      <input type="number" class="fx-mx" id="pm1_curl" value="0.5" min="0" step="0.1">
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Blob radius — stroke thickness fed into metaball">BLB</span>
+      <input type="range" class="fx-slider" data-fx="petal1" data-param="blob"    min="2"   max="20"  step="0.5" value="4">
+      <span class="fx-val">9</span>
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Blur radius — merge field distance">BLR</span>
+      <input type="range" class="fx-slider" data-fx="petal1" data-param="blur"    min="1"   max="18"  step="0.5" value="3">
+      <span class="fx-val">7</span>
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Stick — contrast threshold, controls filament sharpness">STK</span>
+      <input type="range" class="fx-slider" data-fx="petal1" data-param="stick"   min="4"   max="35"  step="0.5" value="6.5">
+      <span class="fx-val">14</span>
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Speed — rotation and breathe rate">SPD</span>
+      <input type="range" class="fx-slider" data-fx="petal1" data-param="speed"   min="0.2" max="3"   step="0.1" value="0.5">
+      <span class="fx-val">1.0</span>
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Opacity">OPC</span>
+      <input type="range" class="fx-slider" data-fx="petal1" data-param="opacity" min="0.1" max="1"   step="0.01" value="1.00">
+      <span class="fx-val">0.88</span>
+    </div>
+  </div>
+
+  <!-- Petal Layer 2 -->
+  <div class="channel on" data-layer="petal2">
+    <input class="ch-toggle" type="checkbox" checked>
+    <div class="ch-info"><div class="ch-name">Petal Layer 2</div><div class="ch-sub">領環內瓣 · metaball 52</div></div>
+  </div>
+  <div class="ch-fx">
+    <div class="fx-row">
+      <span class="fx-lbl" title="Color">CLR</span>
+      <div class="fx-swatch" id="sw2" style="background:#9050d8">
+        <input type="color" value="#9050d8" data-fx="petal2" data-param="color">
+      </div>
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Curl — petal spread angle">CRL</span>
+      <input type="range" class="fx-slider" id="p2_curl" min="0" max="0.5" step="0.005" value="0.1">
+      <span class="fx-val" id="pv2_curl">0.065</span>
+      <input type="number" class="fx-mx" id="pm2_curl" value="0.5" min="0" step="0.1">
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Blob radius">BLB</span>
+      <input type="range" class="fx-slider" data-fx="petal2" data-param="blob"    min="2"   max="20"  step="0.5" value="5">
+      <span class="fx-val">5</span>
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Blur radius">BLR</span>
+      <input type="range" class="fx-slider" data-fx="petal2" data-param="blur"    min="1"   max="18"  step="0.5" value="4">
+      <span class="fx-val">4</span>
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Stick — contrast threshold">STK</span>
+      <input type="range" class="fx-slider" data-fx="petal2" data-param="stick"   min="4"   max="35"  step="0.5" value="9.5">
+      <span class="fx-val">14</span>
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Speed">SPD</span>
+      <input type="range" class="fx-slider" data-fx="petal2" data-param="speed"   min="0.2" max="3"   step="0.1" value="1.3">
+      <span class="fx-val">1.0</span>
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Opacity">OPC</span>
+      <input type="range" class="fx-slider" data-fx="petal2" data-param="opacity" min="0.1" max="1"   step="0.01" value="0.82">
+      <span class="fx-val">0.82</span>
+    </div>
+  </div>
+
+  <div class="channel on" data-layer="rings">
+    <input class="ch-toggle" type="checkbox" checked>
+    <div class="ch-info"><div class="ch-name">Liquid Flow</div><div class="ch-sub">流體層 · drift metaball</div></div>
+  </div>
+  <div class="ch-fx">
+    <div class="fx-row">
+      <span class="fx-lbl" title="Color">CLR</span>
+      <div class="fx-swatch" id="sw-ring" style="background:#e0c0ff">
+        <input type="color" id="ring-color-pick" value="#e0c0ff">
+      </div>
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Blur — merge field: higher = blobs fuse sooner">BLR</span>
+      <input type="range" class="fx-slider" id="ring_blur" min="0" max="35" step="0.5" value="28">
+      <span class="fx-val" id="rv_blur">28</span>
+      <input type="number" class="fx-mx" id="rm_blur" value="35" min="0">
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Stick — contrast threshold: higher = harder liquid edges">STK</span>
+      <input type="range" class="fx-slider" id="ring_stick" min="4" max="30" step="0.5" value="28">
+      <span class="fx-val" id="rv_stick">28</span>
+      <input type="number" class="fx-mx" id="rm_stick" value="30" min="4">
+    </div>
+    <div class="fx-row">
+      <span class="fx-lbl" title="Opacity">OPC</span>
+      <input type="range" class="fx-slider" id="ring_opc" min="5" max="100" step="1" value="62">
+      <span class="fx-val" id="rv_opc">62</span>
+    </div>
+  </div>
+
+  <div class="channel on" data-layer="collarette">
+    <input class="ch-toggle" type="checkbox" checked>
+    <div class="ch-info"><div class="ch-name">Collarette Ring</div><div class="ch-sub">領環線 · colR arc</div></div>
+  </div>
+
+  <div class="ch-divider"></div>
+
+  <div class="channel on" data-layer="pupil">
+    <input class="ch-toggle" type="checkbox" checked>
+    <div class="ch-info"><div class="ch-name">Pupil</div><div class="ch-sub">瞳孔＋瞳孔緣 · pg / pe</div></div>
+  </div>
+  <div class="channel on" data-layer="highlight">
+    <input class="ch-toggle" type="checkbox" checked>
+    <div class="ch-info"><div class="ch-name">Specular</div><div class="ch-sub">鏡面反光 · hg gradient</div></div>
+  </div>
+</div>
+
+<canvas id="c" width="500" height="500"></canvas>
+
+<script>
+const W = 500, H = 500, cx = 250, cy = 250, R = 215, TAU = Math.PI * 2;
+
+// ── layer visibility ──
+const L = {
+  base: true, limbal: true, fibres: true, wavy: true,
+  petal1: true, petal2: true, rings: true, collarette: true, pupil: true, highlight: true,
+};
+
+// ── petal metaball FX state ──
+const petalFx = {
+  petal1: { color: '#c880ff', blob: 4,  blur: 3, stick: 6.5, speed: 0.5, opacity: 1.00, curl: 0.30  },
+  petal2: { color: '#9050d8', blob: 5,  blur: 4, stick: 9.5, speed: 1.3, opacity: 0.82, curl: 0.10  },
+};
+
+// ── liquid flow FX state ──
+const ringFx = { color: '#e0c0ff', blur: 28, stick: 28, opacity: 0.62 };
+
+// ── offscreen canvases ──
+function mkCanvas() {
+  const el = document.createElement('canvas');
+  el.width = W; el.height = H;
+  return [el, el.getContext('2d')];
+}
+// petal metaball canvases
+const [raw1, rctx1] = mkCanvas();
+const [raw2, rctx2] = mkCanvas();
+const [baked1, bctx1] = mkCanvas();
+const [baked2, bctx2] = mkCanvas();
+// depth fiber gooey surface canvases
+const [gooRaw, gooRctx]   = mkCanvas();
+const [gooBake, gooBctx]  = mkCanvas();
+// wave ring metaball canvases
+const [ringRaw, ringRctx] = mkCanvas();
+const [ringBake, ringBctx] = mkCanvas();
+
+// ── depth fiber state ──
+const fiberFx = {
+  count:    350,
+  curl:     0.40,
+  deepBlur: 1.0,
+  goo: {
+    color:   '#d8a8ff',
+    blob:    6,
+    blur:    4.5,
+    stick:   4,
+    swaySpd: 0.0040,
+    swayAmp: 0.018,
+    opacity: 0.54,
+    curl:    0.22,
+  },
+};
+
+// ── liquid flow blob generation ──
+// Each blob follows a multi-frequency Lissajous-like path inside the iris.
+// No ring structure — blobs drift freely, merge when close, pull apart with necking.
+let flowBlobs = [];
+function genFlowBlobs() {
+  const rand = makeRand(2718);
+  flowBlobs = [];
+  for (let i = 0; i < 24; i++) {
+    flowBlobs.push({
+      baseR:  R * (0.38 + rand() * 0.32),   // tighter band: 0.38–0.70R, blobs stay close
+      a:      rand() * TAU,                  // base angle, advances each tick
+      aSpd:   (rand() * 2 - 1) * 0.0010,   // very slow base orbit
+      aFreq:  rand() * 0.0020 + 0.0006,     // secondary angle oscillation freq
+      aAmp:   rand() * 0.35 + 0.10,         // secondary angle amplitude (radians)
+      aPhase: rand() * TAU,
+      rFreq:  rand() * 0.0030 + 0.0008,     // radial drift freq
+      rAmp:   rand() * 28 + 18,             // radial drift amplitude (px)
+      rPhase: rand() * TAU,
+      sz:     rand() * 20 + 28,             // blob radius 28–48px — large for visible necking
+    });
+  }
+}
+
+// ── seeded PRNG ──
+function makeRand(seed) {
+  let s = seed >>> 0;
+  return () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return (s >>> 0) / 4294967296; };
+}
+
+// ── fiber generation (re-run when count or curl changes) ──
+const FIBER_BASE_R = R * 0.30;  // fixed inner radius — pupil covers any overlap
+let fibers = [];
+function genFibers() {
+  const rand = makeRand(2025);
+  const arr  = [];
+  for (let i = 0; i < fiberFx.count; i++) {
+    const depth = i < fiberFx.count * 0.25 ? 0
+                : i < fiberFx.count * 0.60 ? 1
+                : 2;
+    arr.push({
+      angle:  rand() * TAU,
+      startR: FIBER_BASE_R + rand() * (depth === 0 ? 8 : 14),
+      endR:   R - 6 - rand() * (depth === 0 ? 22 : 10),
+      cpOff:  (rand() - 0.5) * fiberFx.curl * 0.55,
+      cpT:    0.2 + rand() * 0.6,
+      hShift: (rand() - 0.5) * 30,
+      lShift: (rand() - 0.5) * 18,
+      phase:  rand() * TAU,
+      depth,
+    });
+  }
+  fibers = arr.sort((a, b) => a.depth - b.depth);
+}
+genFibers();
+genFlowBlobs();
+
+// layer colors: [deep, mid, surface]
+const FIBER_LAYERS = [
+  { alpha: 0.18, lw: 0.70, h: 272, s: 45, l: 20 },
+  { alpha: 0.42, lw: 0.46, h: 262, s: 52, l: 36 },
+  { alpha: 0.80, lw: 0.26, h: 280, s: 68, l: 72 },
+];
+
+// curlMag: optional override for curl magnitude (preserves per-fiber direction from baked cpOff)
+function fiberPath(xctx, f, sway, curlMag, endROvr) {
+  const angle  = f.angle + sway;
+  const endR   = endROvr !== undefined ? endROvr : f.endR;
+  const sx = cx + Math.cos(angle) * f.startR, sy = cy + Math.sin(angle) * f.startR;
+  const ex = cx + Math.cos(angle) * endR,     ey = cy + Math.sin(angle) * endR;
+  const cpOff  = curlMag !== undefined ? (f.cpOff >= 0 ? curlMag : -curlMag) : f.cpOff;
+  const cpRr   = f.startR + (endR - f.startR) * f.cpT;
+  xctx.beginPath();
+  xctx.moveTo(sx, sy);
+  xctx.quadraticCurveTo(cx + Math.cos(angle + cpOff) * cpRr, cy + Math.sin(angle + cpOff) * cpRr, ex, ey);
+}
+
+function drawDepthFibresDeepMid() {
+  for (let li = 0; li < 2; li++) {
+    const lyr = FIBER_LAYERS[li];
+    const lf  = fibers.filter(f => f.depth === li);
+    ctx.save();
+    if (li === 0 && fiberFx.deepBlur > 0) ctx.filter = `blur(${fiberFx.deepBlur}px)`;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = lyr.lw;
+    for (const f of lf) {
+      fiberPath(ctx, f, 0);
+      const h = lyr.h + f.hShift, l = Math.max(5, lyr.l + f.lShift);
+      ctx.strokeStyle = `hsla(${h},${lyr.s}%,${l}%,${lyr.alpha})`;
+      ctx.stroke();
+    }
+    ctx.filter = 'none';
+    ctx.restore();
+  }
+}
+
+function drawDepthFibresSurface() {
+  const goo = fiberFx.goo;
+  const surfFibers = fibers.filter(f => f.depth === 2);
+
+  // dynSpd: SPD breathes between 0.3x–1.7x of base, creating organic speed variation
+  const dynSpd = goo.swaySpd * (1 + 0.7 * Math.sin(t * 0.00040) + 0.3 * Math.sin(t * 0.00017));
+  // travelPhase: wave that sweeps around the iris ring over time
+  const travelPhase = t * 0.0014;
+
+  // compute per-fiber dynamic sway + radial pulse (shared between metaball and thin-fiber passes)
+  // surfRotAngle gives global continuous rotation; traveling wave uses rotated base angle
+  function surfSway(f) {
+    const baseAng = f.angle + surfRotAngle;
+    return surfRotAngle
+         + Math.sin(t * dynSpd + f.phase) * goo.swayAmp
+         + Math.sin(t * dynSpd * 0.41 + f.phase * 1.8) * goo.swayAmp * 0.30
+         + Math.sin(travelPhase - baseAng * 2.3) * goo.swayAmp * 0.45; // traveling ring wave
+  }
+  function surfEndR(f) {
+    const pulse = Math.sin(t * dynSpd * 0.58 + f.phase * 2.1) * 9
+                + Math.sin(travelPhase * 0.65 - f.angle * 3.1) * 5; // radial traveling wave
+    return Math.min(Math.max(f.endR + pulse, f.startR + 10), R - 3);
+  }
+
+  // ── gooey metaball pass ──
+  gooRctx.clearRect(0, 0, W, H);
+  gooRctx.fillStyle = 'black';        // black bg: contrast() only cuts RGB, not alpha
+  gooRctx.fillRect(0, 0, W, H);
+  gooRctx.strokeStyle = 'white'; gooRctx.fillStyle = 'white';
+  gooRctx.lineWidth = goo.blob; gooRctx.lineCap = 'round'; gooRctx.lineJoin = 'round';
+  for (const f of surfFibers) {
+    const sway  = surfSway(f);
+    const dynER = surfEndR(f);
+    fiberPath(gooRctx, f, sway, goo.curl, dynER);
+    gooRctx.stroke();
+    const ang = f.angle + sway;
+    gooRctx.beginPath();
+    gooRctx.arc(cx + Math.cos(ang) * dynER, cy + Math.sin(ang) * dynER, goo.blob * 0.65, 0, TAU);
+    gooRctx.fill();
+  }
+  gooBctx.clearRect(0, 0, W, H);
+  gooBctx.filter = `blur(${goo.blur}px) contrast(${goo.stick})`;
+  gooBctx.drawImage(gooRaw, 0, 0);
+  gooBctx.filter = 'none';
+  gooBctx.globalCompositeOperation = 'multiply';
+  gooBctx.fillStyle = goo.color;
+  gooBctx.fillRect(0, 0, W, H);
+  gooBctx.globalCompositeOperation = 'screen';
+  const gloss = gooBctx.createLinearGradient(60, 60, 420, 420);
+  gloss.addColorStop(0,    'rgba(255,255,255,0.38)');
+  gloss.addColorStop(0.4,  'rgba(255,255,255,0.0)');
+  gooBctx.fillStyle = gloss;
+  gooBctx.fillRect(0, 0, W, H);
+  gooBctx.globalCompositeOperation = 'source-over';
+  ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = goo.opacity; ctx.drawImage(gooBake, 0, 0); ctx.restore();
+
+  // ── thin surface fibers on top ──
+  const lyr = FIBER_LAYERS[2];
+  const hueShift = Math.sin(t * 0.00055) * 14; // slow hue drift ±14°
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineWidth = lyr.lw;
+  for (const f of surfFibers) {
+    const sway  = surfSway(f);
+    const dynER = surfEndR(f);
+    fiberPath(ctx, f, sway, goo.curl, dynER);
+    const h = lyr.h + f.hShift + hueShift, l = Math.max(5, lyr.l + f.lShift);
+    ctx.strokeStyle = `hsla(${h},${lyr.s}%,${l}%,${lyr.alpha})`;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ── liquid flow metaball draw ──
+// Blobs follow multi-frequency Lissajous paths → non-periodic drift.
+// High blur + low contrast → soft, viscous metaball merging (not sharp rings).
+// Normal blend (not screen) → opaque fluid pools sitting on the iris surface.
+function drawFlowBlobs() {
+  // Black background is required: contrast() only affects RGB, not alpha.
+  // Without black bg, blurred transparent edges can never be thresholded sharp.
+  ringRctx.clearRect(0, 0, W, H);
+  ringRctx.fillStyle = 'black';
+  ringRctx.fillRect(0, 0, W, H);
+  ringRctx.fillStyle = 'white';
+
+  for (const b of flowBlobs) {
+    b.a += b.aSpd;
+    const angle = b.a + Math.sin(t * b.aFreq + b.aPhase) * b.aAmp;
+    const r     = b.baseR + Math.sin(t * b.rFreq + b.rPhase) * b.rAmp;
+    const rc = Math.min(r, R * 0.88);
+    ringRctx.beginPath();
+    ringRctx.arc(cx + Math.cos(angle) * rc, cy + Math.sin(angle) * rc, b.sz, 0, TAU);
+    ringRctx.fill();
+  }
+
+  // Bake: blur spreads blobs, contrast cuts RGB at 50% grey → sharp black/white (fully opaque)
+  ringBctx.clearRect(0, 0, W, H);
+  ringBctx.filter = `blur(${ringFx.blur}px) contrast(${ringFx.stick})`;
+  ringBctx.drawImage(ringRaw, 0, 0);
+  ringBctx.filter = 'none';
+
+  // Colorize: multiply tints white→color, black stays black
+  ringBctx.globalCompositeOperation = 'multiply';
+  ringBctx.fillStyle = ringFx.color;
+  ringBctx.fillRect(0, 0, W, H);
+  ringBctx.globalCompositeOperation = 'source-over';
+
+  // screen blend: black (0) has no effect on iris, colored blobs brighten/tint the iris
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  ctx.globalAlpha = ringFx.opacity;
+  ctx.drawImage(ringBake, 0, 0);
+  ctx.restore();
+}
+
+// ── UI: mixer toggle ──
+const mixerEl = document.getElementById('mixer');
+let mixerOpen = true;
+function toggleMixer() { mixerOpen = !mixerOpen; mixerEl.classList.toggle('hidden', !mixerOpen); }
+document.getElementById('mixer-btn').addEventListener('click', toggleMixer);
+document.addEventListener('keydown', e => { if (e.key === 'l' || e.key === 'L') toggleMixer(); });
+
+// ── UI: layer checkboxes ──
+document.querySelectorAll('.channel').forEach(ch => {
+  const key = ch.dataset.layer;
+  const box = ch.querySelector('.ch-toggle');
+  const sync = () => { L[key] = box.checked; ch.classList.toggle('on', box.checked); };
+  box.addEventListener('change', sync);
+  ch.addEventListener('click', e => { if (e.target === box) return; box.checked = !box.checked; sync(); });
+});
+
+// ── UI: FX sliders ──
+document.querySelectorAll('.fx-slider').forEach(sl => {
+  const fx  = sl.dataset.fx;
+  const par = sl.dataset.param;
+  const val = sl.nextElementSibling;
+  sl.addEventListener('input', () => {
+    const v = parseFloat(sl.value);
+    petalFx[fx][par] = v;
+    val.textContent = (par === 'speed' || par === 'opacity')
+      ? v.toFixed(par === 'speed' ? 1 : 2)
+      : (v % 1 === 0 ? v : v.toFixed(1));
+  });
+});
+
+// ── UI: color pickers ──
+document.querySelectorAll('input[type="color"]').forEach(cp => {
+  const fx     = cp.dataset.fx;
+  const swatch = document.getElementById(fx === 'petal1' ? 'sw1' : 'sw2');
+  cp.addEventListener('input', () => { petalFx[fx].color = cp.value; swatch.style.background = cp.value; });
+});
+
+// ── metaball renderer ──
+// Pipeline: draw white strokes on raw → blur+contrast bake on baked → colorize → composite to main
+function renderMetaball(rctx, rawCanvas, bctx, bakedCanvas, mainCtx, fx, drawStrokes) {
+  // 1. Black background required: contrast() skips alpha, so transparent edges stay fuzzy.
+  //    Black bg keeps alpha=1 everywhere; contrast then thresholds RGB → sharp edges.
+  rctx.clearRect(0, 0, W, H);
+  rctx.fillStyle = 'black';
+  rctx.fillRect(0, 0, W, H);
+  rctx.fillStyle   = 'white';
+  rctx.strokeStyle = 'white';
+  rctx.lineWidth   = fx.blob;
+  rctx.lineCap     = 'round';
+  rctx.lineJoin    = 'round';
+  drawStrokes(rctx, fx);
+
+  // 2. Blur → contrast threshold → sharp metaball silhouette (black/white, fully opaque)
+  bctx.clearRect(0, 0, W, H);
+  bctx.filter = `blur(${fx.blur}px) contrast(${fx.stick})`;
+  bctx.drawImage(rawCanvas, 0, 0);
+  bctx.filter = 'none';
+
+  // 3. multiply: white→color, black stays black
+  bctx.globalCompositeOperation = 'multiply';
+  bctx.fillStyle = fx.color;
+  bctx.fillRect(0, 0, W, H);
+
+  // 4. Glossy sheen via screen (adds upper-left highlight without affecting black bg visibility)
+  bctx.globalCompositeOperation = 'screen';
+  const gloss = bctx.createLinearGradient(60, 60, 420, 420);
+  gloss.addColorStop(0,    'rgba(255,255,255,0.38)');
+  gloss.addColorStop(0.4,  'rgba(255,255,255,0.0)');
+  bctx.fillStyle = gloss;
+  bctx.fillRect(0, 0, W, H);
+  bctx.globalCompositeOperation = 'source-over';
+
+  // 5. screen blend onto main: black (0) is invisible on iris, colored strokes brighten/tint
+  mainCtx.save();
+  mainCtx.globalCompositeOperation = 'screen';
+  mainCtx.globalAlpha = fx.opacity;
+  mainCtx.drawImage(bakedCanvas, 0, 0);
+  mainCtx.restore();
+}
+
+// ── petal geometry: stroke-drawing callbacks ──
+// Breathe = traveling radial wave that makes neighboring petals periodically merge → 拉絲
+function drawP1(rctx, fx) {
+  const colR = R * 0.46;
+  for (let i = 0; i < 38; i++) {
+    const angle   = (i / 38) * TAU + t * 0.004 * fx.speed;
+    const breathe = Math.sin(t * 0.028 * fx.speed + i * TAU / 38) * 14;
+    const tipR    = colR + R * 0.22 + breathe;
+    const baseR   = colR - R * 0.06;
+    const tipX    = cx + Math.cos(angle) * tipR;
+    const tipY    = cy + Math.sin(angle) * tipR;
+    const baseX   = cx + Math.cos(angle) * baseR;
+    const baseY   = cy + Math.sin(angle) * baseR;
+    const spread  = fx.curl + 0.03 * Math.sin(t * 0.02 + i);
+    rctx.beginPath();
+    rctx.moveTo(baseX, baseY);
+    rctx.quadraticCurveTo(
+      cx + Math.cos(angle - spread) * (baseR + R * 0.04),
+      cy + Math.sin(angle - spread) * (baseR + R * 0.04),
+      tipX, tipY
+    );
+    rctx.moveTo(baseX, baseY);
+    rctx.quadraticCurveTo(
+      cx + Math.cos(angle + spread) * (baseR + R * 0.04),
+      cy + Math.sin(angle + spread) * (baseR + R * 0.04),
+      tipX, tipY
+    );
+    rctx.stroke();
+    // extra mass at tip — enlarges the merge field between neighbors
+    rctx.beginPath();
+    rctx.arc(tipX, tipY, fx.blob * 0.7, 0, TAU);
+    rctx.fill();
+  }
+}
+
+function drawP2(rctx, fx) {
+  const col2R = R * 0.38;
+  for (let i = 0; i < 52; i++) {
+    const angle   = (i / 52) * TAU - t * 0.003 * fx.speed + 0.06;
+    const breathe = Math.sin(t * 0.032 * fx.speed + i * TAU / 52) * 8;
+    const tipR    = col2R + R * 0.14 + breathe;
+    const baseR   = col2R - R * 0.04;
+    const tipX    = cx + Math.cos(angle) * tipR;
+    const tipY    = cy + Math.sin(angle) * tipR;
+    const baseX   = cx + Math.cos(angle) * baseR;
+    const baseY   = cy + Math.sin(angle) * baseR;
+    const sp      = fx.curl + 0.02 * Math.sin(t * 0.016 + i);
+    rctx.beginPath();
+    rctx.moveTo(baseX, baseY);
+    rctx.quadraticCurveTo(
+      cx + Math.cos(angle - sp) * (baseR + R * 0.03),
+      cy + Math.sin(angle - sp) * (baseR + R * 0.03),
+      tipX, tipY
+    );
+    rctx.moveTo(baseX, baseY);
+    rctx.quadraticCurveTo(
+      cx + Math.cos(angle + sp) * (baseR + R * 0.03),
+      cy + Math.sin(angle + sp) * (baseR + R * 0.03),
+      tipX, tipY
+    );
+    rctx.stroke();
+    rctx.beginPath();
+    rctx.arc(tipX, tipY, fx.blob * 0.7, 0, TAU);
+    rctx.fill();
+  }
+}
+
+// ── main canvas + animation ──
+const cv  = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let t = 0, pupilScale = 1, targetPupil = 1, surfRotAngle = 0;
+
+cv.addEventListener('mouseover', () => targetPupil = 0.68);
+cv.addEventListener('mouseout',  () => targetPupil = 1.0);
+cv.addEventListener('click',     () => { targetPupil = 0.48; setTimeout(() => targetPupil = 1.0, 700); });
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  const pupilR = R * 0.26 * pupilScale;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, TAU);
+  ctx.clip();
+
+  if (L.base) {
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+    g.addColorStop(0,    '#d8a8e8');
+    g.addColorStop(0.25, '#c98edd');
+    g.addColorStop(0.55, '#a96ccc');
+    g.addColorStop(0.78, '#7b3fa8');
+    g.addColorStop(1,    '#3d1060');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+  }
+
+  if (L.limbal) {
+    const g = ctx.createRadialGradient(cx, cy, R * 0.72, cx, cy, R);
+    g.addColorStop(0, 'rgba(30,0,50,0)');
+    g.addColorStop(1, 'rgba(10,0,30,0.82)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+  }
+
+  if (L.fibres) drawDepthFibresDeepMid();
+  if (L.wavy)   drawDepthFibresSurface();
+
+  if (L.petal1) renderMetaball(rctx1, raw1, bctx1, baked1, ctx, petalFx.petal1, drawP1);
+  if (L.petal2) renderMetaball(rctx2, raw2, bctx2, baked2, ctx, petalFx.petal2, drawP2);
+  if (L.rings)  drawFlowBlobs();
+
+  if (L.collarette) {
+    ctx.strokeStyle = 'rgba(200,160,230,0.4)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.42, 0, TAU); ctx.stroke();
+  }
+
+  if (L.pupil) {
+    const pg = ctx.createRadialGradient(cx, cy, 0, cx, cy, pupilR);
+    pg.addColorStop(0, '#0a0010'); pg.addColorStop(1, '#000');
+    ctx.beginPath(); ctx.arc(cx, cy, pupilR, 0, TAU);
+    ctx.fillStyle = pg; ctx.fill();
+
+    const pe = ctx.createRadialGradient(cx, cy, pupilR * 0.82, cx, cy, pupilR * 1.08);
+    pe.addColorStop(0, 'rgba(0,0,0,0)'); pe.addColorStop(1, 'rgba(0,0,0,0.6)');
+    ctx.beginPath(); ctx.arc(cx, cy, pupilR * 1.08, 0, TAU);
+    ctx.fillStyle = pe; ctx.fill();
+  }
+
+  ctx.restore(); // end iris clip
+
+  if (L.highlight) {
+    const hx = cx - pupilR * 0.55, hy = cy - pupilR * 0.7;
+    const hg = ctx.createRadialGradient(hx, hy, 0, hx, hy, pupilR * 0.32);
+    hg.addColorStop(0,   'rgba(255,255,255,0.9)');
+    hg.addColorStop(0.5, 'rgba(255,255,255,0.45)');
+    hg.addColorStop(1,   'rgba(255,255,255,0)');
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.clip();
+    ctx.beginPath(); ctx.ellipse(hx, hy, pupilR * 0.32, pupilR * 0.2, -0.4, 0, TAU);
+    ctx.fillStyle = hg; ctx.fill();
+    ctx.restore();
+  }
+}
+
+const spdDisplay = document.getElementById('gv_spd');
+const spdSlider  = document.getElementById('goo_spd');
+function loop() {
+  t++;
+  pupilScale += (targetPupil - pupilScale) * 0.055;
+
+  // triangle wave: linear 0→100→0, no slow-down at peaks
+  const phase = (t * 0.005) % 1;
+  const autoSpd = phase < 0.5 ? phase * 200 : (1 - phase) * 200;
+  fiberFx.goo.swaySpd = autoSpd / 10000;
+  if (spdSlider)  spdSlider.value = autoSpd;
+  if (spdDisplay) spdDisplay.textContent = Math.round(autoSpd);
+
+  const dynSpd = fiberFx.goo.swaySpd * (1 + 0.7 * Math.sin(t * 0.00040) + 0.3 * Math.sin(t * 0.00017));
+  surfRotAngle += dynSpd * 0.28;
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+
+// ── fiber FX slider wiring ──
+// wireFx(sliderId, maxId, valId, cb)
+function wireFx(slId, mxId, vlId, cb) {
+  const sl = document.getElementById(slId);
+  const vl = document.getElementById(vlId);
+  if (!sl) return;
+  const fmt = v => (v % 1 === 0 ? v : v.toFixed(1));
+  sl.addEventListener('input', () => { vl.textContent = fmt(+sl.value); cb(+sl.value); });
+  if (!mxId) return;
+  const mx = document.getElementById(mxId);
+  mx.addEventListener('change', () => {
+    const newMax = Math.max(+mx.value, +sl.min || 0);
+    mx.value = newMax; sl.max = newMax;
+    if (+sl.value > newMax) { sl.value = newMax; vl.textContent = fmt(newMax); cb(newMax); }
+  });
+}
+
+wireFx('fib_count', 'fm_count', 'fv_count', v => { fiberFx.count    = v;        genFibers(); });
+wireFx('fib_curl',  'fm_curl',  'fv_curl',  v => { fiberFx.curl     = v / 100;  genFibers(); });
+wireFx('fib_dblur', 'fm_dblur', 'fv_dblur', v => { fiberFx.deepBlur = v / 10; });
+
+wireFx('goo_curl',  'gm_curl',  'gv_curl',  v => { fiberFx.goo.curl    = v; });
+wireFx('goo_blob',  'gm_blob',  'gv_blob',  v => { fiberFx.goo.blob    = v; });
+wireFx('goo_blur',  'gm_blur',  'gv_blur',  v => { fiberFx.goo.blur    = v; });
+wireFx('goo_stick', 'gm_stick', 'gv_stick', v => { fiberFx.goo.stick   = v; });
+wireFx('goo_spd',   'gm_spd',   'gv_spd',   v => { fiberFx.goo.swaySpd = v / 10000; });
+wireFx('goo_amp',   'gm_amp',   'gv_amp',   v => { fiberFx.goo.swayAmp = v / 2200; });
+wireFx('goo_opc',   'gm_opc',   'gv_opc',   v => { fiberFx.goo.opacity = v / 100; });
+
+wireFx('p1_curl', 'pm1_curl', 'pv1_curl', v => { petalFx.petal1.curl = v; });
+wireFx('p2_curl', 'pm2_curl', 'pv2_curl', v => { petalFx.petal2.curl = v; });
+
+const gooColorPick = document.getElementById('goo-color-pick');
+const gooSwatch    = document.getElementById('sw-goo');
+gooColorPick.addEventListener('input', () => {
+  fiberFx.goo.color = gooColorPick.value;
+  gooSwatch.style.background = gooColorPick.value;
+});
+
+wireFx('ring_blur',  'rm_blur',  'rv_blur',  v => { ringFx.blur    = v; });
+wireFx('ring_stick', 'rm_stick', 'rv_stick', v => { ringFx.stick   = v; });
+wireFx('ring_opc',   null, 'rv_opc',   v => { ringFx.opacity = v / 100; });
+const ringColorPick = document.getElementById('ring-color-pick');
+const ringSwatch    = document.getElementById('sw-ring');
+ringColorPick.addEventListener('input', () => {
+  ringFx.color = ringColorPick.value;
+  ringSwatch.style.background = ringColorPick.value;
+});
+</script>
+</body>
+</html>
