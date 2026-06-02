@@ -8,7 +8,7 @@ export default class EyelidAnimator {
     this.sprite61 = sprite61
     this.sprite62 = sprite62
     this.currentOffset = 0
-    this.maxOffset = 80
+    this.maxOffset = 700
   }
 
   update(ear) {

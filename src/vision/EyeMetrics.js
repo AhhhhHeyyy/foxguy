@@ -1,5 +1,15 @@
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
 
+const REF_FACE_W = 0.35 // typical face width in normalized coords at reference distance
+
+// Returns head offset (x/y: -1~1) and relative distance (z: 0=reference, +closer, -further)
+export function computeHeadPos(landmarks) {
+  const nose = landmarks[1]
+  const faceW = Math.abs(landmarks[263].x - landmarks[33].x)
+  const z = Math.max(-1, Math.min(1, faceW / REF_FACE_W - 1))
+  return { x: (nose.x - 0.5) * 2, y: (nose.y - 0.5) * 2, z }
+}
+
 export function computeEAR(landmarks) {
   const lm = landmarks
 

@@ -31,13 +31,15 @@ export default class LayerCompositor {
     this.irisEyeLayer = new IrisEyeLayer()
     this.stage.addChild(this.irisEyeLayer.sprite)
 
+    this.layer45Container = new Container()
     for (const name of LAYERS_AFTER) {
       const sprite = new Sprite(textures[`/assets/${name}.png`])
       sprite.x = 0
       sprite.y = 0
       this.sprites[name] = sprite
-      this.stage.addChild(sprite)
+      this.layer45Container.addChild(sprite)
     }
+    this.stage.addChild(this.layer45Container)
 
     this.eyelidContainer = new Container()
     this.sprite62 = new Sprite(textures['/assets/6-2.png'])

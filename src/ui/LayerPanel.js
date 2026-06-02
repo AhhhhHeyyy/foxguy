@@ -10,11 +10,12 @@ const LAYER_DEFS = [
 ]
 
 export default class LayerPanel {
-  constructor(compositor, { layerFilters = {}, stageFilters = [], eyelidAnimator = null } = {}) {
-    this.compositor   = compositor
-    this.layerFilters = layerFilters
-    this.stageFilters = stageFilters
+  constructor(compositor, { layerFilters = {}, stageFilters = [], eyelidAnimator = null, parallaxConfig = null } = {}) {
+    this.compositor     = compositor
+    this.layerFilters   = layerFilters
+    this.stageFilters   = stageFilters
     this.eyelidAnimator = eyelidAnimator
+    this.parallaxConfig = parallaxConfig
     this.visible = true
     this._build()
     this._bindKey()
@@ -50,7 +51,7 @@ export default class LayerPanel {
 
       if (def.key === 'eyelid' && this.eyelidAnimator) {
         this.panel.appendChild(this._buildRangeRow(
-          'Open', 0, 200, 1, this.eyelidAnimator.maxOffset,
+          'Open', 0, 700, 1, this.eyelidAnimator.maxOffset,
           (v) => { this.eyelidAnimator.maxOffset = v }
         ))
       }
@@ -67,6 +68,13 @@ export default class LayerPanel {
       for (const { filter, label } of this.stageFilters) {
         this.panel.appendChild(this._buildFilterRow(filter, label, false))
       }
+    }
+
+    if (this.parallaxConfig) {
+      const divider = document.createElement('div')
+      divider.className = 'lp-divider'
+      this.panel.appendChild(divider)
+      this._buildParallaxControls(this.parallaxConfig).forEach(el => this.panel.appendChild(el))
     }
 
     const hint = document.createElement('div')
@@ -237,6 +245,61 @@ export default class LayerPanel {
     els.push(chRow('Specular', 'highlight', L))
 
     return els
+  }
+
+  // ── parallax controls ────────────────────────────────────────────────────────
+
+  _buildParallaxControls(cfg) {
+    const f2 = (v) => v.toFixed(2)
+    const els = []
+
+    const label = document.createElement('div')
+    label.className = 'lp-stage-label'
+    label.textContent = 'Parallax'
+    els.push(label)
+
+    const canvas = document.querySelector('#app canvas')
+    els.push(this._buildRangeRow('Crop', 1, 1.5, 0.01, 1, (v) => {
+      if (canvas) canvas.style.transform = `scale(${v})`
+    }))
+    els.push(this._buildRangeRow('STR X', 0, 200, 1, cfg.strengthX, (v) => { cfg.strengthX = v }))
+    els.push(this._buildRangeRow('STR Y', 0, 200, 1, cfg.strengthY, (v) => { cfg.strengthY = v }))
+    els.push(this._buildRangeRow('STR Z', 0, 200, 1, cfg.strengthZ, (v) => { cfg.strengthZ = v }))
+
+    const depthLabel = document.createElement('div')
+    depthLabel.style.cssText = 'color:#5a3a7a;font-size:8px;letter-spacing:1px;padding:5px 4px 1px 22px;text-transform:uppercase'
+    depthLabel.textContent = 'Layer Depth'
+    els.push(depthLabel)
+
+    for (const key of ['0', '1', '2', '3']) {
+      els.push(this._sl(`L${key}`, 0, 1, 0.01, cfg.layers[key], (v) => { cfg.layers[key] = v }, f2))
+    }
+    els.push(this._sl('L4+5', 0, 1, 0.01, cfg.layer45, (v) => { cfg.layer45 = v }, f2))
+    els.push(this._sl('Iris', 0, 1, 0.01, cfg.iris,   (v) => { cfg.iris   = v }, f2))
+    els.push(this._sl('Lid',  0, 1, 0.01, cfg.eyelid, (v) => { cfg.eyelid = v }, f2))
+
+    return els
+  }
+
+  _sl(label, min, max, step, val, onChange, fmt) {
+    const row = document.createElement('div')
+    row.className = 'lp-filter-row lp-filter-indented'
+    const labelEl = document.createElement('span')
+    labelEl.className = 'lp-filter-label'; labelEl.textContent = label
+    const slider = document.createElement('input')
+    slider.type = 'range'; slider.min = String(min); slider.max = String(max)
+    slider.step = String(step); slider.value = String(val)
+    slider.className = 'lp-filter-slider'
+    const valEl = document.createElement('span')
+    valEl.style.cssText = 'min-width:28px;color:#5a3a7a;font-size:8px;text-align:right;flex-shrink:0'
+    valEl.textContent = fmt ? fmt(val) : String(val)
+    slider.addEventListener('input', () => {
+      const v = parseFloat(slider.value)
+      valEl.textContent = fmt ? fmt(v) : String(v)
+      onChange(v)
+    })
+    row.appendChild(labelEl); row.appendChild(slider); row.appendChild(valEl)
+    return row
   }
 
   // ── shared helpers ────────────────────────────────────────────────────────────

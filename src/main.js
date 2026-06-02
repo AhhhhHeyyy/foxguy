@@ -1,9 +1,9 @@
 import AppState from './state/AppState.js'
-import PixiApp from './app/PixiApp.js'
+import PixiApp, { CANVAS_W, CANVAS_H } from './app/PixiApp.js'
 import LayerCompositor from './app/LayerCompositor.js'
 import CameraManager from './vision/CameraManager.js'
 import FaceLandmarkerManager from './vision/FaceLandmarker.js'
-import { computeEAR } from './vision/EyeMetrics.js'
+import { computeEAR, computeHeadPos } from './vision/EyeMetrics.js'
 import EyelidAnimator from './animation/EyelidAnimator.js'
 import { lerp } from './animation/Lerp.js'
 import ParticleFilter from './shaders/ParticleFilter.js'
@@ -12,6 +12,7 @@ import BloomFilter from './shaders/BloomFilter.js'
 import DissolveFilter from './shaders/DissolveFilter.js'
 import DebugOverlay from './debug/DebugOverlay.js'
 import LayerPanel from './ui/LayerPanel.js'
+import { parallaxConfig } from './app/ParallaxConfig.js'
 
 const EAR_CLOSED = 0.18
 
@@ -54,6 +55,7 @@ async function main() {
 
   new LayerPanel(compositor, {
     eyelidAnimator: animator,
+    parallaxConfig,
     layerFilters: {
       '2': [{ filter: distortionFilter2, label: 'Distortion' }],
       '3': [{ filter: dissolveFilter, label: 'Dissolve' }],
@@ -80,8 +82,15 @@ async function main() {
         AppState.rawEar = earAvg
         AppState.gaze.x = lerp(AppState.gaze.x, gazeX, 0.2)
         AppState.gaze.y = lerp(AppState.gaze.y, gazeY, 0.2)
+        const { x: hx, y: hy, z: hz } = computeHeadPos(lm)
+        AppState.head.x = lerp(AppState.head.x, hx, 0.08)
+        AppState.head.y = lerp(AppState.head.y, hy, 0.08)
+        AppState.head.z = lerp(AppState.head.z, hz, 0.08)
         debugOverlay.update(lm)
       } else {
+        AppState.head.x = lerp(AppState.head.x, 0, 0.05)
+        AppState.head.y = lerp(AppState.head.y, 0, 0.05)
+        AppState.head.z = lerp(AppState.head.z, 0, 0.05)
         debugOverlay.update(null)
       }
     }
@@ -106,6 +115,30 @@ async function main() {
 
     // Iris eye animation
     compositor.irisEyeLayer.tick()
+
+    // Cel-layer parallax (head-tracked, simulates stacked transparency sheets)
+    const px = -AppState.head.x * parallaxConfig.strengthX
+    const py = -AppState.head.y * parallaxConfig.strengthY
+    const pz =  AppState.head.z * parallaxConfig.strengthZ / 100
+    for (const [key, depth] of Object.entries(parallaxConfig.layers)) {
+      const sprite = compositor.sprites[key]
+      if (sprite) {
+        const sz = 1 + pz * depth
+        sprite.scale.set(sz)
+        sprite.x = px * depth + (1 - sz) * CANVAS_W / 2
+        sprite.y = py * depth + (1 - sz) * CANVAS_H / 2
+      }
+    }
+    const sz45 = 1 + pz * parallaxConfig.layer45
+    compositor.layer45Container.scale.set(sz45)
+    compositor.layer45Container.x = px * parallaxConfig.layer45 + (1 - sz45) * CANVAS_W / 2
+    compositor.layer45Container.y = py * parallaxConfig.layer45 + (1 - sz45) * CANVAS_H / 2
+    compositor.irisEyeLayer.applyZoom(1 + pz * parallaxConfig.iris)
+    compositor.irisEyeLayer.applyParallax(px * parallaxConfig.iris, py * parallaxConfig.iris)
+    const szLid = 1 + pz * parallaxConfig.eyelid
+    compositor.eyelidContainer.scale.set(szLid)
+    compositor.eyelidContainer.x = px * parallaxConfig.eyelid + (1 - szLid) * CANVAS_W / 2
+    compositor.eyelidContainer.y = py * parallaxConfig.eyelid + (1 - szLid) * CANVAS_H / 2
 
     // Shader updates
     distortionFilter2.update(AppState)

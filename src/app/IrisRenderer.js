@@ -13,7 +13,7 @@ const ctx = canvas.getContext('2d')
 
 export const L = {
   base: true, limbal: true, fibres: true, wavy: true,
-  petal1: true, petal2: true, rings: true, collarette: true, pupil: true, highlight: true,
+  petal1: true, petal2: true, rings: false, collarette: true, pupil: true, highlight: true,
 }
 
 export const baseFx = {

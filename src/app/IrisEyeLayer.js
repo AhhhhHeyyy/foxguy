@@ -13,9 +13,12 @@ export default class IrisEyeLayer {
 
     // Position as % of art canvas (0–1)
     this.cxPct = 0.515
-    this.cyPct = 0.249
+    this.cyPct = 0.27
     this.rPct  = 0.217
 
+    this._parallaxDX = 0
+    this._parallaxDY = 0
+    this._zoomSz = 1
     this._applyTransform()
 
     // Expose state for LayerPanel
@@ -34,10 +37,24 @@ export default class IrisEyeLayer {
     const artCX = CANVAS_W * this.cxPct
     const artCY = CANVAS_H * this.cyPct
     const artR  = CANVAS_H * this.rPct
-    const scale = artR / R
+    const scale = artR / R * this._zoomSz
     this.sprite.scale.set(scale)
-    this.sprite.x = Math.round(artCX - (W / 2) * scale)
-    this.sprite.y = Math.round(artCY - (H / 2) * scale)
+    this._baseX = Math.round(artCX - (W / 2) * scale)
+    this._baseY = Math.round(artCY - (H / 2) * scale)
+    this.sprite.x = this._baseX + this._parallaxDX
+    this.sprite.y = this._baseY + this._parallaxDY
+  }
+
+  applyParallax(dx, dy) {
+    this._parallaxDX = dx
+    this._parallaxDY = dy
+    this.sprite.x = this._baseX + dx
+    this.sprite.y = this._baseY + dy
+  }
+
+  applyZoom(sz) {
+    this._zoomSz = sz
+    this._applyTransform()
   }
 
   setTransform(cxPct, cyPct, rPct) {
