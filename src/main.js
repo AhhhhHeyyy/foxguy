@@ -10,6 +10,7 @@ import ParticleFilter from './shaders/ParticleFilter.js'
 import DistortionFilter from './shaders/DistortionFilter.js'
 import BloomFilter from './shaders/BloomFilter.js'
 import DissolveFilter from './shaders/DissolveFilter.js'
+import PaperGrainFilter from './shaders/PaperGrainFilter.js'
 import DebugOverlay from './debug/DebugOverlay.js'
 import LayerPanel from './ui/LayerPanel.js'
 import { parallaxConfig } from './app/ParallaxConfig.js'
@@ -34,6 +35,7 @@ async function main() {
   const dissolveFilter = new DissolveFilter()
   const bloomFilter = new BloomFilter()
   const particleFilter = new ParticleFilter()
+  const paperGrainFilter = new PaperGrainFilter()
 
   distortionFilter2.enabled = false
   distortionFilter4.enabled = false
@@ -41,6 +43,8 @@ async function main() {
   dissolveFilter.enabled = false
   bloomFilter.enabled = false
   particleFilter.enabled = false
+
+  compositor.bloodPool.sprite.filters = [paperGrainFilter]
 
   compositor.sprites['2'].filters = [distortionFilter2]
   compositor.sprites['3'].filters = [dissolveFilter]
@@ -56,11 +60,13 @@ async function main() {
   new LayerPanel(compositor, {
     eyelidAnimator: animator,
     parallaxConfig,
+    bloodPool: compositor.bloodPool,
     layerFilters: {
       '2': [{ filter: distortionFilter2, label: 'Distortion' }],
       '3': [{ filter: dissolveFilter, label: 'Dissolve' }],
       '4': [{ filter: distortionFilter4, label: 'Distortion' }],
       '5': [{ filter: distortionFilter5, label: 'Distortion' }],
+      blood: [{ filter: paperGrainFilter, label: 'Paper Grain' }],
     },
     stageFilters: [
       { filter: bloomFilter, label: 'Bloom' },
@@ -116,6 +122,9 @@ async function main() {
     // Iris eye animation
     compositor.irisEyeLayer.tick()
 
+    // Blood pool animation
+    compositor.bloodPool.tick(AppState.time)
+
     // Cel-layer parallax (head-tracked, simulates stacked transparency sheets)
     const px = -AppState.head.x * parallaxConfig.strengthX
     const py = -AppState.head.y * parallaxConfig.strengthY
@@ -128,6 +137,15 @@ async function main() {
         sprite.x = px * depth + (1 - sz) * CANVAS_W / 2
         sprite.y = py * depth + (1 - sz) * CANVAS_H / 2
       }
+    }
+
+    // Blood pool parallax — preserve 2x base scale (half-res canvas)
+    {
+      const depth = 0.20
+      const sz = 1 + pz * depth
+      compositor.bloodPool.sprite.scale.set(2 * sz)
+      compositor.bloodPool.sprite.x = px * depth + (1 - sz) * CANVAS_W / 2
+      compositor.bloodPool.sprite.y = py * depth + (1 - sz) * CANVAS_H / 2
     }
     const sz45 = 1 + pz * parallaxConfig.layer45
     compositor.layer45Container.scale.set(sz45)
@@ -147,6 +165,7 @@ async function main() {
     dissolveFilter.update(AppState)
     bloomFilter.update(AppState)
     particleFilter.update(AppState)
+    paperGrainFilter.update(AppState)
   })
 }
 

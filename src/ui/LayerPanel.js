@@ -1,6 +1,7 @@
 const LAYER_DEFS = [
   { key: '0', label: 'Layer 0' },
   { key: '1', label: 'Layer 1' },
+  { key: 'blood', label: 'Blood Pool (1.5)' },
   { key: '2', label: 'Layer 2' },
   { key: 'iris', label: 'Iris Eye (2.5)' },
   { key: '3', label: 'Layer 3' },
@@ -10,12 +11,13 @@ const LAYER_DEFS = [
 ]
 
 export default class LayerPanel {
-  constructor(compositor, { layerFilters = {}, stageFilters = [], eyelidAnimator = null, parallaxConfig = null } = {}) {
+  constructor(compositor, { layerFilters = {}, stageFilters = [], eyelidAnimator = null, parallaxConfig = null, bloodPool = null } = {}) {
     this.compositor     = compositor
     this.layerFilters   = layerFilters
     this.stageFilters   = stageFilters
     this.eyelidAnimator = eyelidAnimator
     this.parallaxConfig = parallaxConfig
+    this.bloodPool      = bloodPool
     this.visible = true
     this._build()
     this._bindKey()
@@ -31,6 +33,24 @@ export default class LayerPanel {
     this.panel.appendChild(title)
 
     for (const def of LAYER_DEFS) {
+      // collect sub-elements first so we know if a toggle arrow is needed
+      const subEls = []
+      for (const { filter, label } of (this.layerFilters[def.key] || [])) {
+        subEls.push(this._buildFilterRow(filter, label, true))
+      }
+      if (def.key === 'blood' && this.bloodPool) {
+        this._buildBloodPoolControls().forEach(el => subEls.push(el))
+      }
+      if (def.key === 'iris') {
+        this._buildIrisControls().forEach(el => subEls.push(el))
+      }
+      if (def.key === 'eyelid' && this.eyelidAnimator) {
+        subEls.push(this._buildRangeRow(
+          'Open', 0, 700, 1, this.eyelidAnimator.maxOffset,
+          (v) => { this.eyelidAnimator.maxOffset = v }
+        ))
+      }
+
       const row = document.createElement('label')
       row.className = 'lp-row'
       const cb = document.createElement('input')
@@ -38,22 +58,31 @@ export default class LayerPanel {
       cb.addEventListener('change', () => this._setVisible(def.key, cb.checked))
       const span = document.createElement('span')
       span.textContent = def.label
-      row.appendChild(cb); row.appendChild(span)
-      this.panel.appendChild(row)
 
-      for (const { filter, label } of (this.layerFilters[def.key] || [])) {
-        this.panel.appendChild(this._buildFilterRow(filter, label, true))
-      }
+      if (subEls.length > 0) {
+        const arrow = document.createElement('span')
+        arrow.textContent = '▶'
+        arrow.style.cssText = 'display:inline-block;width:10px;font-size:7px;color:#9a6ab0;margin-right:3px;cursor:pointer;user-select:none;flex-shrink:0;transition:transform 0.15s'
 
-      if (def.key === 'iris') {
-        this._buildIrisControls().forEach(el => this.panel.appendChild(el))
-      }
+        const group = document.createElement('div')
+        group.className = 'lp-sublayer-group'
+        group.style.cssText = 'display:none;overflow:hidden'
+        subEls.forEach(el => group.appendChild(el))
 
-      if (def.key === 'eyelid' && this.eyelidAnimator) {
-        this.panel.appendChild(this._buildRangeRow(
-          'Open', 0, 700, 1, this.eyelidAnimator.maxOffset,
-          (v) => { this.eyelidAnimator.maxOffset = v }
-        ))
+        arrow.addEventListener('click', (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          const isOpen = group.style.display !== 'none'
+          group.style.display = isOpen ? 'none' : 'block'
+          arrow.style.transform = isOpen ? '' : 'rotate(90deg)'
+        })
+
+        row.appendChild(arrow); row.appendChild(cb); row.appendChild(span)
+        this.panel.appendChild(row)
+        this.panel.appendChild(group)
+      } else {
+        row.appendChild(cb); row.appendChild(span)
+        this.panel.appendChild(row)
       }
     }
 
@@ -83,6 +112,49 @@ export default class LayerPanel {
     this.panel.appendChild(hint)
 
     document.body.appendChild(this.panel)
+  }
+
+  // ── blood pool controls ───────────────────────────────────────────────────────
+
+  _buildBloodPoolControls() {
+    const bp = this.bloodPool
+    const f2 = (v) => v.toFixed(2)
+    const sep = (text) => {
+      const el = document.createElement('div')
+      el.style.cssText = 'color:#5a3a7a;font-size:8px;letter-spacing:1px;padding:5px 4px 1px 22px;text-transform:uppercase'
+      el.textContent = text
+      return el
+    }
+    const fi   = (v) => String(Math.round(v))
+    const fpct = (v) => (v * 100).toFixed(0) + '%'
+
+    const maskToggle = document.createElement('label')
+    maskToggle.className = 'lp-filter-row lp-filter-indented'
+    maskToggle.style.cursor = 'pointer'
+    const maskCb = document.createElement('input')
+    maskCb.type = 'checkbox'; maskCb.checked = bp.maskEnabled
+    maskCb.addEventListener('change', () => { bp.maskEnabled = maskCb.checked })
+    const maskSp = document.createElement('span')
+    maskSp.className = 'lp-filter-label'; maskSp.textContent = 'Enable'
+    maskToggle.appendChild(maskCb); maskToggle.appendChild(maskSp)
+
+    return [
+      sep('Lighting'),
+      this._sl('SHAD', 0, 2, 0.05, bp.shadowStr, (v) => { bp.shadowStr = v }, f2),
+      this._sl('GLOW', 0, 2, 0.05, bp.glowStr,   (v) => { bp.glowStr   = v }, f2),
+      sep('Waves'),
+      this._sl('AMP',  0.1, 6,   0.05, bp.amp,     (v) => { bp.amp     = v }, f2),
+      this._sl('FREQ', 0.1, 6,   0.05, bp.freq,    (v) => { bp.freq    = v }, f2),
+      this._sl('GAP',  10,  120, 1,    bp.spacing, (v) => { bp.spacing = v }, fi),
+      sep('Range'),
+      this._sl('TOP',  0,   1,   0.01, bp.topPct,  (v) => { bp.topPct  = v }, fpct),
+      sep('Mask'),
+      maskToggle,
+      this._sl('T',    0,   1,   0.01, bp.maskTop,   (v) => { bp.maskTop   = v }, fpct),
+      this._sl('B',    0,   1,   0.01, bp.maskBot,   (v) => { bp.maskBot   = v }, fpct),
+      this._sl('L',    0,   1,   0.01, bp.maskLeft,  (v) => { bp.maskLeft  = v }, fpct),
+      this._sl('R',    0,   1,   0.01, bp.maskRight, (v) => { bp.maskRight = v }, fpct),
+    ]
   }
 
   // ── iris FX mixer (mirrors purple_iris_eye.html) ─────────────────────────────
@@ -259,9 +331,17 @@ export default class LayerPanel {
     els.push(label)
 
     const canvas = document.querySelector('#app canvas')
-    els.push(this._buildRangeRow('Crop', 1, 1.5, 0.01, 1, (v) => {
-      if (canvas) canvas.style.transform = `scale(${v})`
-    }))
+    let cropX = 1, cropY = 1
+    const updateCrop = () => {
+      if (!canvas) return
+      const s = Math.max(cropX, cropY)
+      const cx = cropX < s ? ((s - cropX) / s / 2 * 100).toFixed(2) : 0
+      const cy = cropY < s ? ((s - cropY) / s / 2 * 100).toFixed(2) : 0
+      canvas.style.transform = s > 1 ? `scale(${s})` : ''
+      canvas.style.clipPath = (cx > 0 || cy > 0) ? `inset(${cy}% ${cx}% ${cy}% ${cx}%)` : ''
+    }
+    els.push(this._buildRangeRow('Crop X', 1, 1.5, 0.01, 1, (v) => { cropX = v; updateCrop() }))
+    els.push(this._buildRangeRow('Crop Y', 1, 1.5, 0.01, 1, (v) => { cropY = v; updateCrop() }))
     els.push(this._buildRangeRow('STR X', 0, 200, 1, cfg.strengthX, (v) => { cfg.strengthX = v }))
     els.push(this._buildRangeRow('STR Y', 0, 200, 1, cfg.strengthY, (v) => { cfg.strengthY = v }))
     els.push(this._buildRangeRow('STR Z', 0, 200, 1, cfg.strengthZ, (v) => { cfg.strengthZ = v }))
