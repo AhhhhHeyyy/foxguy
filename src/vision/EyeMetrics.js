@@ -7,7 +7,8 @@ export function computeHeadPos(landmarks) {
   const nose = landmarks[1]
   const faceW = Math.abs(landmarks[263].x - landmarks[33].x)
   const z = Math.max(-1, Math.min(1, faceW / REF_FACE_W - 1))
-  return { x: (nose.x - 0.5) * 2, y: (nose.y - 0.5) * 2, z }
+  // Mirror X for selfie mode (camera flips left/right)
+  return { x: -(nose.x - 0.5) * 2, y: (nose.y - 0.5) * 2, z }
 }
 
 export function computeEAR(landmarks) {
