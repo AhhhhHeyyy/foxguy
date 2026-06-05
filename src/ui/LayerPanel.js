@@ -18,7 +18,8 @@ export default class LayerPanel {
     this.eyelidAnimator = eyelidAnimator
     this.parallaxConfig = parallaxConfig
     this.bloodPool      = bloodPool
-    this.visible = true
+    this.visible = false
+    this.panelHovered = false
     this._build()
     this._bindKey()
   }
@@ -51,6 +52,57 @@ export default class LayerPanel {
         subEls.push(this._sl('X',     -536, 536, 1,    sprite4 ? sprite4.x       : 0, (v) => { if (sprite4) sprite4.x = v },          fi))
         subEls.push(this._sl('Y',     -863, 863, 1,    sprite4 ? sprite4.y       : 0, (v) => { if (sprite4) sprite4.y = v },          fi))
         subEls.push(this._sl('Scale',  0.1,   3, 0.01, sprite4 ? sprite4.scale.x : 1, (v) => { if (sprite4) sprite4.scale.set(v) },   f2))
+      }
+      if (def.key === '5' && this.parallaxConfig?.layer5Mouse) {
+        const l5 = this.parallaxConfig.layer5Mouse
+        const fi = (v) => String(Math.round(v))
+        const enableRow = document.createElement('label')
+        enableRow.className = 'lp-filter-row lp-filter-indented'
+        enableRow.style.cursor = 'pointer'
+        const enableCb = document.createElement('input')
+        enableCb.type = 'checkbox'; enableCb.checked = l5.enabled
+        enableCb.addEventListener('change', () => { l5.enabled = enableCb.checked })
+        const enableSp = document.createElement('span')
+        enableSp.className = 'lp-filter-label'; enableSp.textContent = 'Mouse Track'
+        enableRow.appendChild(enableCb); enableRow.appendChild(enableSp)
+        subEls.push(enableRow)
+        const sep = (text) => {
+          const el = document.createElement('div')
+          el.style.cssText = 'color:#5a3a7a;font-size:8px;letter-spacing:1px;padding:5px 4px 1px 22px;text-transform:uppercase'
+          el.textContent = text
+          return el
+        }
+        const previewBtns = {}
+        const mkPreviewBtn = (point) => {
+          const btn = document.createElement('button')
+          btn.textContent = `Preview ${point}`
+          btn.style.cssText = 'margin-left:6px;padding:0 6px;height:14px;font-size:8px;font-family:monospace;background:#1a0a2a;border:1px solid #5a3a7a;color:#9a6ab0;border-radius:2px;cursor:pointer;vertical-align:middle'
+          previewBtns[point] = btn
+          btn.addEventListener('click', () => {
+            if (l5.preview === point) {
+              l5.preview = null
+              btn.style.background = '#1a0a2a'
+              btn.style.color = '#9a6ab0'
+            } else {
+              l5.preview = point
+              btn.style.background = '#5a3a7a'
+              btn.style.color = '#fff'
+              const other = point === 'A' ? 'B' : 'A'
+              if (previewBtns[other]) {
+                previewBtns[other].style.background = '#1a0a2a'
+                previewBtns[other].style.color = '#9a6ab0'
+              }
+            }
+          })
+          return btn
+        }
+        const sepRowA = sep('Point A (滑鼠左側)'); sepRowA.appendChild(mkPreviewBtn('A')); subEls.push(sepRowA)
+        subEls.push(this._slNum('A.X', -536, 536, 1, l5.pointA.x, (v) => { l5.pointA.x = v }))
+        subEls.push(this._slNum('A.Y', -863, 863, 1, l5.pointA.y, (v) => { l5.pointA.y = v }))
+        const sepRowB = sep('Point B (滑鼠右側)'); sepRowB.appendChild(mkPreviewBtn('B')); subEls.push(sepRowB)
+        subEls.push(this._slNum('B.X', -536, 536, 1, l5.pointB.x, (v) => { l5.pointB.x = v }))
+        subEls.push(this._slNum('B.Y', -863, 863, 1, l5.pointB.y, (v) => { l5.pointB.y = v }))
+        subEls.push(this._slNum('LERP', 0.01, 1, 0.01, l5.lerpFactor, (v) => { l5.lerpFactor = v }))
       }
       if (def.key === 'eyelid' && this.eyelidAnimator) {
         const fi = (v) => String(Math.round(v))
@@ -86,6 +138,11 @@ export default class LayerPanel {
         group.style.cssText = 'display:none;overflow:hidden'
         subEls.forEach(el => group.appendChild(el))
 
+        if (def.key === '5') {
+          group.addEventListener('mouseenter', () => { this.panelHovered = true })
+          group.addEventListener('mouseleave', () => { this.panelHovered = false })
+        }
+
         arrow.addEventListener('click', (e) => {
           e.preventDefault()
           e.stopPropagation()
@@ -113,6 +170,13 @@ export default class LayerPanel {
       this.panel.appendChild(stageLabel)
       for (const { filter, label } of this.stageFilters) {
         this.panel.appendChild(this._buildFilterRow(filter, label, false))
+        if (typeof filter.color === 'string') {
+          this.panel.appendChild(this._buildColorRow(filter))
+        }
+        if (filter.dark !== undefined) {
+          this.panel.appendChild(this._sl('DARK', 0, 1, 0.01, filter.dark,
+            (v) => { filter.dark = v }, (v) => v.toFixed(2)))
+        }
       }
     }
 
@@ -125,10 +189,11 @@ export default class LayerPanel {
 
     const hint = document.createElement('div')
     hint.className = 'lp-hint'
-    hint.textContent = 'L to toggle'
+    hint.textContent = 'P to toggle'
     this.panel.appendChild(hint)
 
     document.body.appendChild(this.panel)
+    this.panel.style.display = 'none'
     this._buildSmokePanel()
   }
 
@@ -426,6 +491,7 @@ export default class LayerPanel {
     }
 
     document.body.appendChild(this.smokePanel)
+    this.smokePanel.style.display = 'none'
   }
 
   // ── smoke controls (postMessage → iframe) ───────────────────────────────────
@@ -575,6 +641,37 @@ export default class LayerPanel {
     return els
   }
 
+  // Like _sl but replaces the read-only value display with an editable number input
+  _slNum(label, min, max, step, val, onChange) {
+    const row = document.createElement('div')
+    row.className = 'lp-filter-row lp-filter-indented'
+    const labelEl = document.createElement('span')
+    labelEl.className = 'lp-filter-label'; labelEl.textContent = label
+    const slider = document.createElement('input')
+    slider.type = 'range'; slider.min = String(min); slider.max = String(max)
+    slider.step = String(step); slider.value = String(val)
+    slider.className = 'lp-filter-slider'
+    const numInput = document.createElement('input')
+    numInput.type = 'number'; numInput.value = String(val); numInput.step = String(step)
+    numInput.className = 'lp-max-input'; numInput.style.width = '48px'
+    slider.addEventListener('input', () => {
+      const v = parseFloat(slider.value)
+      numInput.value = String(v)
+      onChange(v)
+    })
+    numInput.addEventListener('change', () => {
+      const v = parseFloat(numInput.value)
+      if (!isNaN(v)) {
+        slider.min = String(Math.min(parseFloat(slider.min), v))
+        slider.max = String(Math.max(parseFloat(slider.max), v))
+        slider.value = String(v)
+        onChange(v)
+      }
+    })
+    row.appendChild(labelEl); row.appendChild(slider); row.appendChild(numInput)
+    return row
+  }
+
   _sl(label, min, max, step, val, onChange, fmt) {
     const row = document.createElement('div')
     row.className = 'lp-filter-row lp-filter-indented'
@@ -636,6 +733,22 @@ export default class LayerPanel {
     return row
   }
 
+  _buildColorRow(filter) {
+    const row = document.createElement('div')
+    row.className = 'lp-filter-row lp-filter-indented'
+    const lbl = document.createElement('span')
+    lbl.className = 'lp-filter-label'; lbl.textContent = 'CLR'
+    const swatch = document.createElement('div')
+    swatch.style.cssText = `flex:1;height:12px;border-radius:2px;border:1px solid #3a2a4a;background:${filter.color};position:relative;overflow:hidden;cursor:pointer`
+    const cp = document.createElement('input')
+    cp.type = 'color'; cp.value = filter.color
+    cp.style.cssText = 'position:absolute;left:-4px;top:-4px;width:calc(100% + 8px);height:calc(100% + 8px);opacity:0;cursor:pointer;border:none'
+    cp.addEventListener('input', () => { filter.color = cp.value; swatch.style.background = cp.value })
+    swatch.appendChild(cp)
+    row.appendChild(lbl); row.appendChild(swatch)
+    return row
+  }
+
   _buildFilterRow(filter, label, indented) {
     const row = document.createElement('div')
     row.className = indented ? 'lp-filter-row lp-filter-indented' : 'lp-filter-row'
@@ -665,7 +778,7 @@ export default class LayerPanel {
 
   _bindKey() {
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'l' || e.key === 'L') {
+      if (e.key === 'p' || e.key === 'P') {
         this.visible = !this.visible
         this.panel.style.display = this.visible ? 'block' : 'none'
         if (this.smokePanel) this.smokePanel.style.display = this.visible ? 'block' : 'none'

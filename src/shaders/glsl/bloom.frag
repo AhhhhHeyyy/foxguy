@@ -3,24 +3,22 @@ precision mediump float;
 
 in vec2 vTextureCoord;
 uniform sampler2D uTexture;
-uniform float uTime;
-uniform float uEAR;
-uniform float uIntensity;
+uniform float uIntensity;    // color tint strength
+uniform float uDark;         // darkening strength (0 = no darken, 1 = black)
+uniform float uBloomOpacity; // 0 = eyes open, 1 = eyes closed
+uniform vec3 uColor;
 
 out vec4 fragColor;
 
 void main() {
   vec2 uv = vTextureCoord;
-  float radius = (1.0 + uEAR * 3.0 + sin(uTime) * 0.3) * 0.004;
-
   vec4 center = texture(uTexture, uv);
-  vec4 bloom = vec4(0.0);
-  bloom += texture(uTexture, uv + vec2(radius, 0.0));
-  bloom += texture(uTexture, uv + vec2(-radius, 0.0));
-  bloom += texture(uTexture, uv + vec2(0.0, radius));
-  bloom += texture(uTexture, uv + vec2(0.0, -radius));
-  bloom /= 4.0;
+  float e = uBloomOpacity;
 
-  vec3 tint = mix(vec3(0.3, 0.7, 1.0), vec3(1.0, 0.8, 0.3), uEAR);
-  fragColor = mix(center, bloom * vec4(tint, 1.0), 0.4 * uIntensity);
+  // pull brightness down
+  vec3 result = center.rgb * (1.0 - e * uDark);
+  // additive color overlay on top
+  result += uColor * e * uIntensity;
+
+  fragColor = vec4(result, center.a);
 }

@@ -10,11 +10,12 @@ export default class DebugOverlay {
     this.canvas = document.getElementById('debug-canvas')
     this.ctx = this.canvas.getContext('2d')
     this.landmarks = null
-    this.visible = true
+    this.visible = false
+    this.canvas.style.display = 'none'
 
     // Toggle with backtick key
     window.addEventListener('keydown', (e) => {
-      if (e.key === '`') {
+      if (e.key === 'p' || e.key === 'P') {
         this.visible = !this.visible
         this.canvas.style.display = this.visible ? 'block' : 'none'
       }
@@ -131,6 +132,6 @@ export default class DebugOverlay {
 
     ctx.fillStyle = 'rgba(255,255,255,0.3)'
     ctx.font = '10px monospace'
-    ctx.fillText('` to toggle', 6, this.canvas.height - 6)
+    ctx.fillText('P to toggle', 6, this.canvas.height - 6)
   }
 }

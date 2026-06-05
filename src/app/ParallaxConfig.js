@@ -6,4 +6,11 @@ export const parallaxConfig = {
   layer45: 0.50,
   iris: 0.40,
   eyelid: 0,
+  layer5Mouse: {
+    enabled: true,
+    pointA: { x: -6, y: 10 },
+    pointB: { x:  3, y: -2 },
+    lerpFactor: 0.08,
+    preview: null,
+  },
 }

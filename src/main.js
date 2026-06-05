@@ -23,13 +23,18 @@ async function main() {
 
   const pixiAppBottom = new PixiApp('app-bottom')
   const pixiAppTop    = new PixiApp('app-top')
-  await Promise.all([pixiAppBottom.ready, pixiAppTop.ready])
+  const pixiAppEyelid = new PixiApp('app-eyelid')
+  await Promise.all([pixiAppBottom.ready, pixiAppTop.ready, pixiAppEyelid.ready])
 
-  // Bottom canvas drives layers 0/1 only; render it manually each frame
+  // Bottom and eyelid canvases are rendered manually each frame
   pixiAppBottom.app.ticker.stop()
+  pixiAppEyelid.app.ticker.stop()
 
   const compositor = new LayerCompositor(pixiAppBottom.app.stage, pixiAppTop.app.stage)
   await compositor.load()
+
+  // Eyelid lives on its own canvas (z-index 4) above app-top so bloom doesn't affect it
+  pixiAppEyelid.app.stage.addChild(compositor.eyelidContainer)
 
   const animator = new EyelidAnimator(compositor.sprite61, compositor.sprite62)
 
@@ -47,7 +52,7 @@ async function main() {
   distortionFilter4.enabled = false
   distortionFilter5.enabled = false
   dissolveFilter.enabled = false
-  bloomFilter.enabled = false
+  bloomFilter.enabled = true
   particleFilter.enabled = false
 
   compositor.bloodPool.sprite.filters    = [paperGrainFilter]
@@ -82,7 +87,15 @@ async function main() {
     ],
   })
 
-  const DETECT_INTERVAL = 1000 / 15  // 15fps for face tracking
+  // Mouse tracking for layer5 (normalized 0–1 across the viewport)
+  const mouseRaw    = { x: 0.5, y: 0.5 }
+  const mouseSmooth = { x: 0.5, y: 0.5 }
+  window.addEventListener('mousemove', (e) => {
+    mouseRaw.x = e.clientX / window.innerWidth
+    mouseRaw.y = 1 - e.clientY / window.innerHeight
+  })
+
+  const DETECT_INTERVAL = 1000 / 30  // 30fps for face tracking
   let lastDetectTime = 0
 
   // Render loop — driven by top canvas ticker; bottom canvas rendered manually
@@ -115,8 +128,9 @@ async function main() {
     }
     debugOverlay.draw(AppState)
 
-    // Smooth EAR
-    AppState.ear = lerp(AppState.ear, AppState.rawEar, 0.15)
+    // Smooth EAR — fast when closing, slow when opening (natural blink feel)
+    const earClosing = AppState.rawEar < AppState.ear
+    AppState.ear = lerp(AppState.ear, AppState.rawEar, earClosing ? 0.5 : 0.15)
 
     // Blink detection (falling edge)
     const wasOpen = AppState.eyeOpen
@@ -129,8 +143,8 @@ async function main() {
     }
     if (!AppState.eyeOpen) AppState.blinkAge++
 
-    // Eyelid animation
-    animator.update(AppState.ear)
+    // Eyelid animation — pass raw ear to skip double-smoothing
+    animator.update(AppState.rawEar)
 
     // Iris eye animation — opacity + rotation speed driven by eye openness
     const openFactor = Math.max(0, Math.min(1, (AppState.ear - EAR_CLOSED) / (EAR_OPEN - EAR_CLOSED)))
@@ -168,6 +182,25 @@ async function main() {
     compositor.layer45Container.scale.set(sz45)
     compositor.layer45Container.x = px * parallaxConfig.layer45 + (1 - sz45) * CANVAS_W / 2
     compositor.layer45Container.y = py * parallaxConfig.layer45 + (1 - sz45) * CANVAS_H / 2
+
+    // Layer 5 mouse tracking — maps mouse pos to sprite5 local offset within sprite4
+    {
+      const l5 = parallaxConfig.layer5Mouse
+      if (l5.enabled) {
+        if (l5.preview === 'A') {
+          mouseSmooth.x = lerp(mouseSmooth.x, 0, 0.15)
+        } else if (l5.preview === 'B') {
+          mouseSmooth.x = lerp(mouseSmooth.x, 1, 0.15)
+        } else if (!layerPanel.panelHovered) {
+          mouseSmooth.x = lerp(mouseSmooth.x, mouseRaw.x, l5.lerpFactor)
+        }
+        const sprite5 = compositor.sprites['5']
+        if (sprite5) {
+          sprite5.x = lerp(l5.pointA.x, l5.pointB.x, mouseSmooth.x)
+          sprite5.y = lerp(l5.pointA.y, l5.pointB.y, mouseSmooth.x)
+        }
+      }
+    }
     compositor.irisEyeLayer.applyZoom(1 + pz * parallaxConfig.iris)
     compositor.irisEyeLayer.applyParallax(px * parallaxConfig.iris, py * parallaxConfig.iris)
     const szLid = 1 + pz * parallaxConfig.eyelid
@@ -187,6 +220,8 @@ async function main() {
 
     // Render layers 0/1 (bottom canvas, ticker stopped)
     pixiAppBottom.render()
+    // Render eyelid canvas separately (above bloom, ticker stopped)
+    pixiAppEyelid.render()
   })
 }
 

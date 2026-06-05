@@ -65,11 +65,12 @@ export default class LayerCompositor {
 
     this.topStage.addChild(this.layer45Container)
 
+    // eyelidContainer is intentionally not added to topStage here;
+    // main.js moves it to a dedicated canvas above app-top (app-eyelid, z-index 4)
     this.eyelidContainer = new Container()
     this.sprite62 = new Sprite(textures['/assets/6-2.png'])
     this.sprite61 = new Sprite(textures['/assets/6-1.png'])
     this.eyelidContainer.addChild(this.sprite62)
     this.eyelidContainer.addChild(this.sprite61)
-    this.topStage.addChild(this.eyelidContainer)
   }
 }
