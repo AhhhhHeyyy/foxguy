@@ -16,7 +16,7 @@ export default class PixiApp {
       height: CANVAS_H,
       backgroundAlpha: 0,
       antialias: false,
-      resolution: 1,
+      resolution: Math.min(window.devicePixelRatio || 1, 2),
       autoDensity: true,
     })
 
@@ -27,7 +27,7 @@ export default class PixiApp {
 
   _resize() {
     const scale = Math.min(window.innerWidth / CANVAS_W, window.innerHeight / CANVAS_H)
-    this.app.canvas.style.width = `${CANVAS_W * scale}px`
+    this.app.canvas.style.width  = `${CANVAS_W * scale}px`
     this.app.canvas.style.height = `${CANVAS_H * scale}px`
   }
 
