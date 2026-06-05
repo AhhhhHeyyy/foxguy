@@ -19,9 +19,9 @@ export default class LayerCompositor {
     this.bloodPool = null
   }
 
-  async load() {
+  async load(onProgress) {
     const all = [...LAYERS_A, ...LAYERS_B, ...LAYERS_AFTER, ...EYE_LAYERS]
-    const textures = await Assets.load(all.map((n) => `/assets/${n}.png`))
+    const textures = await Assets.load(all.map((n) => `/assets/${n}.png`), onProgress)
 
     // Layers 0, 1 — bottom canvas (below smoke iframe)
     for (const name of LAYERS_A) {

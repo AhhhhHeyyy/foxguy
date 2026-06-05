@@ -167,7 +167,10 @@
     <div id="app-top"></div>
     <div id="app-eyelid"></div>
     <canvas id="debug-canvas" width="320" height="240"></canvas>
-    <div style="position:fixed;bottom:14px;right:16px;z-index:9999;font-family:monospace;font-size:11px;color:rgba(255,255,255,0.6);pointer-events:none;user-select:none;text-align:right;line-height:1.8">made by Tong<br>Press P to toggle panels</div>
+    <div style="position:fixed;bottom:14px;right:16px;z-index:9999;font-family:monospace;font-size:11px;pointer-events:none;user-select:none;text-align:right;line-height:1.8">
+      <div id="loading-info" style="color:rgba(100,220,255,0.8);transition:opacity 0.8s">Loading...</div>
+      <div style="color:rgba(255,255,255,0.6)">made by Tong<br>Press P to toggle panels</div>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

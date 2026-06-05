@@ -18,9 +18,21 @@ import { parallaxConfig } from './app/ParallaxConfig.js'
 const EAR_CLOSED = 0.18
 const EAR_OPEN   = 0.35
 
+const loadingEl = document.getElementById('loading-info')
+const setLoading = (msg) => { if (loadingEl) loadingEl.textContent = msg }
+const clearLoading = () => {
+  if (!loadingEl) return
+  loadingEl.textContent = 'Done!'
+  setTimeout(() => {
+    loadingEl.style.opacity = '0'
+    setTimeout(() => loadingEl.remove(), 800)
+  }, 1000)
+}
+
 async function main() {
   const videoEl = document.getElementById('webcam')
 
+  setLoading('Renderer… 0%')
   const pixiAppBottom = new PixiApp('app-bottom')
   const pixiAppTop    = new PixiApp('app-top')
   const pixiAppEyelid = new PixiApp('app-eyelid')
@@ -30,8 +42,9 @@ async function main() {
   pixiAppBottom.app.ticker.stop()
   pixiAppEyelid.app.ticker.stop()
 
+  setLoading('Loading layers… 10%')
   const compositor = new LayerCompositor(pixiAppBottom.app.stage, pixiAppTop.app.stage)
-  await compositor.load()
+  await compositor.load((p) => setLoading(`Loading layers… ${Math.round(10 + p * 50)}%`))
 
   // Eyelid lives on its own canvas (z-index 4) above app-top so bloom doesn't affect it
   pixiAppEyelid.app.stage.addChild(compositor.eyelidContainer)
@@ -65,9 +78,23 @@ async function main() {
   pixiAppTop.app.stage.filters = [bloomFilter, particleFilter]
 
   // Start camera and face tracking (non-blocking — detect when ready)
+  setLoading('Camera + AI… 60%')
   const camera = new CameraManager(videoEl)
   const faceLandmarker = new FaceLandmarkerManager()
   const debugOverlay = new DebugOverlay()
+
+  let _cameraOk = false, _modelOk = false
+  const _checkAllLoaded = () => { if (_cameraOk && _modelOk) clearLoading() }
+  camera.ready.then(() => {
+    _cameraOk = true
+    if (!_modelOk) setLoading('AI model… 80%')
+    else _checkAllLoaded()
+  }).catch(() => { _cameraOk = true; _checkAllLoaded() })
+  faceLandmarker.ready.then(() => {
+    _modelOk = true
+    if (!_cameraOk) setLoading('Camera… 80%')
+    else _checkAllLoaded()
+  }).catch(() => { _modelOk = true; _checkAllLoaded() })
 
   const layerPanel = new LayerPanel(compositor, {
     eyelidAnimator: animator,
