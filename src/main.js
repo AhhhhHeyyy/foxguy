@@ -36,16 +36,14 @@ const showFaceWarning = (lines) => {
   faceWarningEl.style.display = 'block'
 }
 
-const BROWSER_HINT = '→ Use Chrome or Edge for best experience'
-
 function checkMediaPipeSupport() {
   const issues = []
   if (typeof WebAssembly === 'undefined')
-    issues.push('⚠ WebAssembly not supported', BROWSER_HINT)
+    issues.push('⚠ WebAssembly not supported')
   else {
     const gl = document.createElement('canvas').getContext('webgl2')
     if (!gl)
-      issues.push('⚠ WebGL2 unavailable — GPU off', BROWSER_HINT)
+      issues.push('⚠ WebGL2 unavailable — GPU off')
   }
   return issues
 }
@@ -117,12 +115,12 @@ async function main() {
   }).catch(() => { _cameraOk = true; _checkAllLoaded() })
   faceLandmarker.ready.then(() => {
     _modelOk = true
-    if (faceLandmarker.usingCpuFallback) showFaceWarning(['⚠ GPU delegate failed', 'Face tracking using CPU', BROWSER_HINT])
+    if (faceLandmarker.usingCpuFallback) showFaceWarning(['⚠ GPU delegate failed', 'Face tracking using CPU'])
     if (!_cameraOk) setLoading('Camera… 80%')
     else _checkAllLoaded()
   }).catch(() => {
     _modelOk = true
-    showFaceWarning(['✕ Face tracking unavailable', BROWSER_HINT])
+    showFaceWarning(['✕ Face tracking unavailable'])
     _checkAllLoaded()
   })
 
