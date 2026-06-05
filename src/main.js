@@ -29,6 +29,27 @@ const clearLoading = () => {
   }, 1000)
 }
 
+const faceWarningEl = document.getElementById('face-warning')
+const showFaceWarning = (lines) => {
+  if (!faceWarningEl) return
+  faceWarningEl.innerHTML = lines.join('<br>')
+  faceWarningEl.style.display = 'block'
+}
+
+const BROWSER_HINT = '→ Use Chrome or Edge for best experience'
+
+function checkMediaPipeSupport() {
+  const issues = []
+  if (typeof WebAssembly === 'undefined')
+    issues.push('⚠ WebAssembly not supported', BROWSER_HINT)
+  else {
+    const gl = document.createElement('canvas').getContext('webgl2')
+    if (!gl)
+      issues.push('⚠ WebGL2 unavailable — GPU off', BROWSER_HINT)
+  }
+  return issues
+}
+
 async function main() {
   const videoEl = document.getElementById('webcam')
 
@@ -77,6 +98,10 @@ async function main() {
   compositor.sprites['5'].filters = [distortionFilter5]
   pixiAppTop.app.stage.filters = [bloomFilter, particleFilter]
 
+  // Pre-flight: check browser support for MediaPipe
+  const supportIssues = checkMediaPipeSupport()
+  if (supportIssues.length) showFaceWarning(supportIssues)
+
   // Start camera and face tracking (non-blocking — detect when ready)
   setLoading('Camera + AI… 60%')
   const camera = new CameraManager(videoEl)
@@ -92,9 +117,14 @@ async function main() {
   }).catch(() => { _cameraOk = true; _checkAllLoaded() })
   faceLandmarker.ready.then(() => {
     _modelOk = true
+    if (faceLandmarker.usingCpuFallback) showFaceWarning(['⚠ GPU delegate failed', 'Face tracking using CPU', BROWSER_HINT])
     if (!_cameraOk) setLoading('Camera… 80%')
     else _checkAllLoaded()
-  }).catch(() => { _modelOk = true; _checkAllLoaded() })
+  }).catch(() => {
+    _modelOk = true
+    showFaceWarning(['✕ Face tracking unavailable', BROWSER_HINT])
+    _checkAllLoaded()
+  })
 
   const layerPanel = new LayerPanel(compositor, {
     eyelidAnimator: animator,

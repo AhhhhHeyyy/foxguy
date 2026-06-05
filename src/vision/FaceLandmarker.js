@@ -8,18 +8,28 @@ export default class FaceLandmarkerManager {
   constructor() {
     this.landmarker = null
     this.isReady = false
+    this.usingCpuFallback = false
     this.lastTimestamp = -1
     this.ready = this._init()
   }
 
   async _init() {
     const filesetResolver = await FilesetResolver.forVisionTasks(WASM_URL)
-    this.landmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
-      baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
-      outputFaceLandmarks: true,
-      numFaces: 1,
-      runningMode: 'VIDEO',
-    })
+    const baseOpts = { modelAssetPath: MODEL_URL, delegate: 'GPU' }
+    const opts = { outputFaceLandmarks: true, numFaces: 1, runningMode: 'VIDEO' }
+    try {
+      this.landmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+        baseOptions: baseOpts,
+        ...opts,
+      })
+    } catch {
+      // GPU delegate failed — fall back to CPU
+      this.landmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'CPU' },
+        ...opts,
+      })
+      this.usingCpuFallback = true
+    }
     this.isReady = true
   }
 
