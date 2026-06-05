@@ -42,7 +42,7 @@ if (!gl) { showErr('需要 WebGL2 瀏覽器（Chrome / Firefox / Edge）'); thro
 if (!gl.getExtension('EXT_color_buffer_float'))
   { showErr('GPU 不支援浮點數 framebuffer（EXT_color_buffer_float）'); throw 0 }
 
-const LINEAR = gl.getExtension('OES_texture_float_linear') ? gl.LINEAR : gl.NEAREST
+const LINEAR = gl.LINEAR  // RGBA16F in WebGL2 always supports linear filtering
 
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2)
