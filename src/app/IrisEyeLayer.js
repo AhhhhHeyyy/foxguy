@@ -1,5 +1,5 @@
 import { Sprite, Texture, CanvasSource } from 'pixi.js'
-import { canvas, tick as rendererTick, L, baseFx, limbalFx, petalFx, ringFx, fiberFx, vignetteFx, genFibers, genFlowBlobs } from './IrisRenderer.js'
+import { canvas, tick as rendererTick, L, baseFx, limbalFx, petalFx, ringFx, fiberFx, vignetteFx, pupilFx, pupilRingFx, genFibers, genFlowBlobs } from './IrisRenderer.js'
 import { CANVAS_W, CANVAS_H } from './PixiApp.js'
 
 const W = 500, H = 500, R = 215
@@ -13,8 +13,8 @@ export default class IrisEyeLayer {
 
     // Position as % of art canvas (0–1)
     this.cxPct = 0.515
-    this.cyPct = 0.27
-    this.rPct  = 0.217
+    this.cyPct = 0.291
+    this.rPct  = 0.238
 
     this._parallaxDX = 0
     this._parallaxDY = 0
@@ -29,6 +29,8 @@ export default class IrisEyeLayer {
     this.ringFx     = ringFx
     this.fiberFx    = fiberFx
     this.vignetteFx = vignetteFx
+    this.pupilFx     = pupilFx
+    this.pupilRingFx = pupilRingFx
     this.genFibers    = genFibers
     this.genFlowBlobs = genFlowBlobs
   }
@@ -64,8 +66,8 @@ export default class IrisEyeLayer {
     this._applyTransform()
   }
 
-  tick() {
-    rendererTick()
+  tick(openFactor = 1) {
+    rendererTick(openFactor)
     this._source.update()
   }
 }

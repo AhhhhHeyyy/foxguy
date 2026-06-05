@@ -14,12 +14,33 @@
         height: 100vh;
         overflow: hidden;
       }
-      #app canvas {
+      #app-bottom canvas,
+      #app-top canvas {
         height: 100vh;
         width: auto;
         display: block;
         transform-origin: center center;
       }
+      #app-bottom,
+      #app-top {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+      }
+      #app-bottom { z-index: 1; }
+      #smoke-bg {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        height: min(100vh, calc(100vw * 1726 / 1072));
+        width: min(100vw, calc(100vh * 1072 / 1726));
+        border: none;
+        z-index: 2;
+      }
+      #app-top { z-index: 3; }
       #webcam {
         position: fixed;
         top: -9999px;
@@ -139,8 +160,10 @@
     </style>
   </head>
   <body>
+    <div id="app-bottom"></div>
+    <iframe id="smoke-bg" src="fluid-sim-test/smoke.html" scrolling="no" allowtransparency="true"></iframe>
     <video id="webcam" autoplay playsinline muted></video>
-    <div id="app"></div>
+    <div id="app-top"></div>
     <canvas id="debug-canvas" width="320" height="240"></canvas>
     <script type="module" src="/src/main.js"></script>
   </body>

@@ -29,10 +29,10 @@ float vnoise(vec2 p) {
   );
 }
 
-// 4-octave fBm for paper fibers
+// 2-octave fBm for paper fibers
 float fbm(vec2 p) {
   float v = 0.0, a = 0.5;
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 2; i++) {
     v += a * vnoise(p);
     p  = p * 2.13 + vec2(5.3, 7.1);
     a *= 0.5;

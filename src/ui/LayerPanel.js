@@ -44,11 +44,28 @@ export default class LayerPanel {
       if (def.key === 'iris') {
         this._buildIrisControls().forEach(el => subEls.push(el))
       }
+      if (def.key === '4') {
+        const fi = (v) => String(Math.round(v))
+        const f2 = (v) => v.toFixed(2)
+        const sprite4 = this.compositor.sprites['4']
+        subEls.push(this._sl('X',     -536, 536, 1,    sprite4 ? sprite4.x       : 0, (v) => { if (sprite4) sprite4.x = v },          fi))
+        subEls.push(this._sl('Y',     -863, 863, 1,    sprite4 ? sprite4.y       : 0, (v) => { if (sprite4) sprite4.y = v },          fi))
+        subEls.push(this._sl('Scale',  0.1,   3, 0.01, sprite4 ? sprite4.scale.x : 1, (v) => { if (sprite4) sprite4.scale.set(v) },   f2))
+      }
       if (def.key === 'eyelid' && this.eyelidAnimator) {
+        const fi = (v) => String(Math.round(v))
         subEls.push(this._buildRangeRow(
-          'Open', 0, 700, 1, this.eyelidAnimator.maxOffset,
-          (v) => { this.eyelidAnimator.maxOffset = v }
+          'Close', -500, 500, 1, this.eyelidAnimator.closeOffset,
+          (v) => { this.eyelidAnimator.closeOffset = v }, true
         ))
+        subEls.push(this._buildRangeRow(
+          'Open', 0, 700, 1, this.eyelidAnimator.openOffset,
+          (v) => { this.eyelidAnimator.openOffset = v }
+        ))
+        subEls.push(this._sl('6-1 Y', -500, 500, 1, this.eyelidAnimator.baseY61,
+          (v) => { this.eyelidAnimator.baseY61 = v }, fi))
+        subEls.push(this._sl('6-2 Y', -500, 500, 1, this.eyelidAnimator.baseY62,
+          (v) => { this.eyelidAnimator.baseY62 = v }, fi))
       }
 
       const row = document.createElement('label')
@@ -112,6 +129,7 @@ export default class LayerPanel {
     this.panel.appendChild(hint)
 
     document.body.appendChild(this.panel)
+    this._buildSmokePanel()
   }
 
   // ── blood pool controls ───────────────────────────────────────────────────────
@@ -209,6 +227,42 @@ export default class LayerPanel {
       return row
     }
 
+    // helper: slider with value label + editable max input
+    const slMax = (lbl, min, max, step, val, cb, fmt) => {
+      const row = document.createElement('div')
+      row.className = 'lp-filter-row lp-filter-indented'
+      const labelEl = document.createElement('span')
+      labelEl.className = 'lp-filter-label'; labelEl.textContent = lbl
+      const slider = document.createElement('input')
+      slider.type = 'range'; slider.min = String(min); slider.max = String(max)
+      slider.step = String(step); slider.value = String(val)
+      slider.className = 'lp-filter-slider'
+      const valEl = document.createElement('span')
+      valEl.style.cssText = 'min-width:28px;color:#5a3a7a;font-size:8px;text-align:right;flex-shrink:0'
+      valEl.textContent = fmt ? fmt(val) : String(val)
+      slider.addEventListener('input', () => {
+        const v = parseFloat(slider.value)
+        valEl.textContent = fmt ? fmt(v) : String(v)
+        cb(v)
+      })
+      const maxInput = document.createElement('input')
+      maxInput.type = 'number'; maxInput.value = String(max)
+      maxInput.className = 'lp-max-input'; maxInput.title = 'max'
+      maxInput.addEventListener('change', () => {
+        const newMax = parseFloat(maxInput.value)
+        if (!isNaN(newMax)) {
+          slider.max = String(newMax)
+          if (parseFloat(slider.value) > newMax) {
+            slider.value = String(newMax)
+            valEl.textContent = fmt ? fmt(newMax) : String(newMax)
+            cb(newMax)
+          }
+        }
+      })
+      row.appendChild(labelEl); row.appendChild(slider); row.appendChild(valEl); row.appendChild(maxInput)
+      return row
+    }
+
     // helper: color swatch row
     const colorRow = (initColor, onChange, label = 'CLR') => {
       const row = document.createElement('div')
@@ -266,7 +320,29 @@ export default class LayerPanel {
     els.push(sl('BLB', 1,   40,  0.5,  fiberFx.goo.blob,           (v) => { fiberFx.goo.blob    = v },        f1))
     els.push(sl('BLR', 1,   30,  0.5,  fiberFx.goo.blur,           (v) => { fiberFx.goo.blur    = v },        f1))
     els.push(sl('STK', 4,   40,  0.5,  fiberFx.goo.stick,          (v) => { fiberFx.goo.stick   = v },        f1))
-    els.push(sl('AMP', 0,  100,  1,    fiberFx.goo.swayAmp * 2200, (v) => { fiberFx.goo.swayAmp = v / 2200 }, f1))
+    {
+      const goo = fiberFx.goo
+      const row = document.createElement('div')
+      row.className = 'lp-filter-row lp-filter-indented'
+      const labelEl = document.createElement('span')
+      labelEl.className = 'lp-filter-label'; labelEl.textContent = 'AMP'
+      const slider = document.createElement('input')
+      slider.type = 'range'; slider.min = '0'; slider.max = '100'
+      slider.step = '1'; slider.value = String(Math.round(goo.swayAmp * 2200))
+      slider.className = 'lp-filter-slider'
+      const valEl = document.createElement('span')
+      valEl.style.cssText = 'min-width:28px;color:#5a3a7a;font-size:8px;text-align:right;flex-shrink:0'
+      valEl.textContent = String(Math.round(goo.swayAmp * 2200))
+      slider.addEventListener('input', () => {
+        const v = parseFloat(slider.value)
+        valEl.textContent = String(Math.round(v))
+        goo.swayAmp = v / 2200
+      })
+      row.appendChild(labelEl); row.appendChild(slider); row.appendChild(valEl)
+      const sync = () => { const v = Math.round(goo.swayAmp * 2200); slider.value = String(v); valEl.textContent = String(v); requestAnimationFrame(sync) }
+      requestAnimationFrame(sync)
+      els.push(row)
+    }
     els.push(sl('OPC', 5,  100,  1,    fiberFx.goo.opacity * 100,  (v) => { fiberFx.goo.opacity = v / 100 },  f1))
     els.push(sl('SCL', 0.1, 3, 0.01, fiberFx.goo.scale,           (v) => { fiberFx.goo.scale = v },           f2))
 
@@ -314,12 +390,90 @@ export default class LayerPanel {
     els.push(sep('─────'))
     els.push(chRow('Collarette Ring', 'collarette', L))
     els.push(chRow('Pupil', 'pupil', L))
+    const { pupilFx, pupilRingFx } = iris
+    els.push(slMax('SZ',  0.05, 0.6,  0.01, pupilFx.size, (v) => { pupilFx.size = v }, f2))
+    els.push(slMax('EDG', 0.01, 0.5,  0.01, pupilFx.edge, (v) => { pupilFx.edge = v }, f2))
+    els.push(chRow('Pupil Ring', 'enabled', pupilRingFx))
+    els.push(colorRow(pupilRingFx.color, (v) => { pupilRingFx.color = v }))
+    els.push(sl('OPC', 0,    1,   0.01, pupilRingFx.opacity, (v) => { pupilRingFx.opacity = v }, f2))
+    els.push(sl('WID', 0.02, 0.6, 0.01, pupilRingFx.width,   (v) => { pupilRingFx.width   = v }, f2))
+    els.push(sl('SHP', 0,    1,   0.01, pupilRingFx.sharp,   (v) => { pupilRingFx.sharp   = v }, f2))
     els.push(chRow('Specular', 'highlight', L))
 
     return els
   }
 
+  // ── smoke panel (standalone, right side) ────────────────────────────────────
+
+  _buildSmokePanel() {
+    this.smokePanel = document.createElement('div')
+    this.smokePanel.id = 'smoke-panel'
+    this.smokePanel.style.cssText = [
+      'position:fixed', 'top:270px', 'right:10px', 'z-index:9999',
+      'background:rgba(0,0,0,0.85)', 'border:1px solid rgba(0,200,255,0.8)',
+      'border-radius:4px', 'padding:10px 14px', 'font-family:monospace',
+      'color:#00e5ff', 'min-width:220px', 'user-select:none',
+    ].join(';')
+
+    const title = document.createElement('div')
+    title.className = 'lp-title'
+    title.textContent = 'Smoke'
+    this.smokePanel.appendChild(title)
+
+    for (const el of this._buildSmokeControls()) {
+      el.classList.remove('lp-filter-indented')
+      this.smokePanel.appendChild(el)
+    }
+
+    document.body.appendChild(this.smokePanel)
+  }
+
+  // ── smoke controls (postMessage → iframe) ───────────────────────────────────
+
+  _buildSmokeControls() {
+    const iframe = document.getElementById('smoke-bg')
+    const post = (type, key, value) => iframe?.contentWindow?.postMessage({ type, key, value }, '*')
+    const f2 = (v) => v.toFixed(2)
+    const f3 = (v) => v.toFixed(3)
+    const f1 = (v) => v.toFixed(1)
+    const els = []
+
+    els.push(this._sl('OPC',    0,     1,    0.01,  1.0,   (v) => post('smoke-disp', 'opacity', v), f2))
+    els.push(this._sl('MASK',   0.05,  0.9,  0.01,  0.56,  (v) => post('smoke-disp', 'maskTop', v), f2))
+    els.push(this._sl('RIMOFF', 0.001, 0.02, 0.001, 0.002, (v) => post('smoke-disp', 'rimOff',  v), f3))
+    els.push(this._sl('RIMAMP', 1,     12,   0.1,   12.0,  (v) => post('smoke-disp', 'rimAmp',  v), f1))
+    els.push(this._sl('RIMSTR', 0,     1.5,  0.01,  1.5,   (v) => post('smoke-disp', 'rimStr',  v), f2))
+
+    const visLayers = [
+      { key: 'bg',    label: '背景層', checked: true  },
+      { key: 'bot',   label: '下層',   checked: true  },
+      { key: 'top',   label: '上層',   checked: false },
+      { key: 'cloud', label: '祥雲層', checked: true  },
+    ]
+    for (const { key, label, checked } of visLayers) {
+      const row = document.createElement('label')
+      row.className = 'lp-filter-row lp-filter-indented'
+      row.style.cursor = 'pointer'
+      const cb = document.createElement('input')
+      cb.type = 'checkbox'; cb.checked = checked
+      cb.addEventListener('change', () => post('smoke-vis', key, cb.checked))
+      const sp = document.createElement('span')
+      sp.className = 'lp-filter-label'; sp.textContent = label
+      row.appendChild(cb); row.appendChild(sp)
+      els.push(row)
+    }
+
+    return els
+  }
+
   // ── parallax controls ────────────────────────────────────────────────────────
+
+  updateParallaxValues(px, py, pz) {
+    if (!this._pxEl) return
+    this._pxEl.textContent = px.toFixed(1)
+    this._pyEl.textContent = py.toFixed(1)
+    this._pzEl.textContent = pz.toFixed(3)
+  }
 
   _buildParallaxControls(cfg) {
     const f2 = (v) => v.toFixed(2)
@@ -330,21 +484,79 @@ export default class LayerPanel {
     label.textContent = 'Parallax'
     els.push(label)
 
-    const canvas = document.querySelector('#app canvas')
-    let cropX = 1, cropY = 1
-    const updateCrop = () => {
-      if (!canvas) return
-      const s = Math.max(cropX, cropY)
-      const cx = cropX < s ? ((s - cropX) / s / 2 * 100).toFixed(2) : 0
-      const cy = cropY < s ? ((s - cropY) / s / 2 * 100).toFixed(2) : 0
-      canvas.style.transform = s > 1 ? `scale(${s})` : ''
-      canvas.style.clipPath = (cx > 0 || cy > 0) ? `inset(${cy}% ${cx}% ${cy}% ${cx}%)` : ''
+    // live readout row
+    const readout = document.createElement('div')
+    readout.className = 'lp-filter-row lp-filter-indented'
+    readout.style.cssText = 'gap:6px;font-size:8px;color:#9a6ab0;font-variant-numeric:tabular-nums'
+    const mkSpan = (prefix) => {
+      const wrap = document.createElement('span')
+      wrap.style.cssText = 'display:flex;gap:2px;align-items:center'
+      const lbl = document.createElement('span')
+      lbl.style.cssText = 'color:#5a3a7a'
+      lbl.textContent = prefix
+      const val = document.createElement('span')
+      val.style.cssText = 'min-width:34px'
+      val.textContent = '0.0'
+      wrap.appendChild(lbl); wrap.appendChild(val)
+      return { wrap, val }
     }
-    els.push(this._buildRangeRow('Crop X', 1, 1.5, 0.01, 1, (v) => { cropX = v; updateCrop() }))
-    els.push(this._buildRangeRow('Crop Y', 1, 1.5, 0.01, 1, (v) => { cropY = v; updateCrop() }))
-    els.push(this._buildRangeRow('STR X', 0, 200, 1, cfg.strengthX, (v) => { cfg.strengthX = v }))
-    els.push(this._buildRangeRow('STR Y', 0, 200, 1, cfg.strengthY, (v) => { cfg.strengthY = v }))
-    els.push(this._buildRangeRow('STR Z', 0, 200, 1, cfg.strengthZ, (v) => { cfg.strengthZ = v }))
+    const rx = mkSpan('X:'); const ry = mkSpan('Y:'); const rz = mkSpan('Z:')
+    this._pxEl = rx.val; this._pyEl = ry.val; this._pzEl = rz.val
+    readout.appendChild(rx.wrap); readout.appendChild(ry.wrap); readout.appendChild(rz.wrap)
+    els.push(readout)
+
+    let cropX = 1, cropY = 1
+    let insetT = 2.5, insetR = 4.5, insetB = 6.5, insetL = 4.5
+    const updateCrop = () => {
+      const canvases = [...document.querySelectorAll('#app-bottom canvas, #app-top canvas')]
+      if (canvases.length === 0) return
+      const s = Math.max(cropX, cropY)
+      const anyInset = insetT > 0 || insetR > 0 || insetB > 0 || insetL > 0
+      const clipVal = anyInset ? `inset(${insetT}% ${insetR}% ${insetB}% ${insetL}%)` : ''
+      for (const c of canvases) {
+        c.style.transform = s > 1 ? `scale(${s})` : ''
+        c.style.clipPath = clipVal
+      }
+      const smoke = document.getElementById('smoke-bg')
+      if (smoke) {
+        smoke.style.transform = s > 1
+          ? `translate(-50%, -50%) scale(${s})`
+          : 'translate(-50%, -50%)'
+        smoke.style.clipPath = clipVal
+      }
+    }
+    const mkInset = (lbl, init, onChange) => {
+      const row = document.createElement('div')
+      row.className = 'lp-filter-row lp-filter-indented'
+      const labelEl = document.createElement('span')
+      labelEl.className = 'lp-filter-label'; labelEl.textContent = lbl
+      const slider = document.createElement('input')
+      slider.type = 'range'; slider.min = '0'; slider.max = '50'; slider.step = '0.5'
+      slider.value = String(init); slider.className = 'lp-filter-slider'
+      const numInput = document.createElement('input')
+      numInput.type = 'number'; numInput.value = String(init); numInput.min = '0'; numInput.step = '0.5'
+      numInput.className = 'lp-max-input'; numInput.style.width = '42px'
+      slider.addEventListener('input', () => {
+        const v = parseFloat(slider.value)
+        numInput.value = String(v); onChange(v)
+      })
+      numInput.addEventListener('change', () => {
+        const v = parseFloat(numInput.value)
+        if (!isNaN(v) && v >= 0) { slider.value = String(Math.min(v, 50)); onChange(v) }
+      })
+      row.appendChild(labelEl); row.appendChild(slider); row.appendChild(numInput)
+      return row
+    }
+    els.push(this._buildRangeRow('Crop X', 1, 3, 0.01, 1, (v) => { cropX = v; updateCrop() }))
+    els.push(this._buildRangeRow('Crop Y', 1, 3, 0.01, 1, (v) => { cropY = v; updateCrop() }))
+    els.push(mkInset('Top',    insetT, (v) => { insetT = v; updateCrop() }))
+    els.push(mkInset('Right',  insetR, (v) => { insetR = v; updateCrop() }))
+    els.push(mkInset('Bottom', insetB, (v) => { insetB = v; updateCrop() }))
+    els.push(mkInset('Left',   insetL, (v) => { insetL = v; updateCrop() }))
+    const fi = (v) => String(Math.round(v))
+    els.push(this._sl('STR X', 0, 200, 1, cfg.strengthX, (v) => { cfg.strengthX = v }, fi))
+    els.push(this._sl('STR Y', 0, 200, 1, cfg.strengthY, (v) => { cfg.strengthY = v }, fi))
+    els.push(this._sl('STR Z', 0, 200, 1, cfg.strengthZ, (v) => { cfg.strengthZ = v }, fi))
 
     const depthLabel = document.createElement('div')
     depthLabel.style.cssText = 'color:#5a3a7a;font-size:8px;letter-spacing:1px;padding:5px 4px 1px 22px;text-transform:uppercase'
@@ -357,6 +569,8 @@ export default class LayerPanel {
     els.push(this._sl('L4+5', 0, 1, 0.01, cfg.layer45, (v) => { cfg.layer45 = v }, f2))
     els.push(this._sl('Iris', 0, 1, 0.01, cfg.iris,   (v) => { cfg.iris   = v }, f2))
     els.push(this._sl('Lid',  0, 1, 0.01, cfg.eyelid, (v) => { cfg.eyelid = v }, f2))
+
+    setTimeout(updateCrop, 0)
 
     return els
   }
@@ -384,7 +598,7 @@ export default class LayerPanel {
 
   // ── shared helpers ────────────────────────────────────────────────────────────
 
-  _buildRangeRow(label, min, max, step, value, onChange) {
+  _buildRangeRow(label, min, max, step, value, onChange, showMinInput = false) {
     const row = document.createElement('div')
     row.className = 'lp-filter-row lp-filter-indented'
     const labelEl = document.createElement('span')
@@ -395,16 +609,30 @@ export default class LayerPanel {
     slider.className = 'lp-filter-slider'
     slider.addEventListener('input', () => onChange(parseFloat(slider.value)))
     const maxInput = document.createElement('input')
-    maxInput.type = 'number'; maxInput.min = '0'; maxInput.value = String(max)
+    maxInput.type = 'number'; maxInput.value = String(max)
     maxInput.className = 'lp-max-input'; maxInput.title = 'max'
     maxInput.addEventListener('change', () => {
       const newMax = parseFloat(maxInput.value)
-      if (!isNaN(newMax) && newMax > 0) {
+      if (!isNaN(newMax)) {
         slider.max = String(newMax)
         if (parseFloat(slider.value) > newMax) { slider.value = String(newMax); onChange(newMax) }
       }
     })
-    row.appendChild(labelEl); row.appendChild(slider); row.appendChild(maxInput)
+    if (showMinInput) {
+      const minInput = document.createElement('input')
+      minInput.type = 'number'; minInput.value = String(min)
+      minInput.className = 'lp-max-input'; minInput.title = 'min'
+      minInput.addEventListener('change', () => {
+        const newMin = parseFloat(minInput.value)
+        if (!isNaN(newMin)) {
+          slider.min = String(newMin)
+          if (parseFloat(slider.value) < newMin) { slider.value = String(newMin); onChange(newMin) }
+        }
+      })
+      row.appendChild(labelEl); row.appendChild(minInput); row.appendChild(slider); row.appendChild(maxInput)
+    } else {
+      row.appendChild(labelEl); row.appendChild(slider); row.appendChild(maxInput)
+    }
     return row
   }
 
@@ -440,6 +668,7 @@ export default class LayerPanel {
       if (e.key === 'l' || e.key === 'L') {
         this.visible = !this.visible
         this.panel.style.display = this.visible ? 'block' : 'none'
+        if (this.smokePanel) this.smokePanel.style.display = this.visible ? 'block' : 'none'
       }
     })
   }

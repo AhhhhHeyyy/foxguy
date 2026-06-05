@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>水墨煙霧模擬</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+canvas { display: block; width: 100%; height: 100%; }
+#hint {
+  position: fixed; bottom: 18px; left: 50%;
+  transform: translateX(-50%);
+  font: 13px/1 sans-serif;
+  color: rgba(160, 170, 200, 0.35);
+  pointer-events: none;
+  white-space: nowrap;
+}
+#err {
+  position: fixed; inset: 0; display: flex; align-items: center;
+  justify-content: center; background: #111;
+  font: 16px sans-serif; color: #c00; display: none;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="err"></div>
+
+<script>
+'use strict'
+
+// ─── WebGL2 init ─────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c')
+const gl = canvas.getContext('webgl2', { alpha: true, antialias: false, depth: false, premultipliedAlpha: false })
+
+function showErr(msg) {
+  const el = document.getElementById('err')
+  el.textContent = msg; el.style.display = 'flex'
+}
+if (!gl) { showErr('需要 WebGL2 瀏覽器（Chrome / Firefox / Edge）'); throw 0 }
+if (!gl.getExtension('EXT_color_buffer_float'))
+  { showErr('GPU 不支援浮點數 framebuffer（EXT_color_buffer_float）'); throw 0 }
+
+const LINEAR = gl.getExtension('OES_texture_float_linear') ? gl.LINEAR : gl.NEAREST
+
+function resize() {
+  canvas.width  = canvas.clientWidth
+  canvas.height = canvas.clientHeight
+}
+resize()
+window.addEventListener('resize', () => { resize() })
+
+// ─── Simulation config ───────────────────────────────────────────────────────
+const CFG = {
+  SIM:               128,   // was 256 — 75% fewer velocity texels
+  DYE:               512,   // was 768 — 56% fewer density texels
+  INK_DISSIPATION:   0.994,
+  VEL_DISSIPATION:   0.968,
+  PRESSURE_ITER:     12,    // was 20 — 12 Jacobi iterations still gives ~90% convergence
+  CURL:              6,
+  SPLAT_RADIUS:      8e-5,
+  SPLAT_FORCE:       500,
+  VORTEX_RADIUS:     3e-4,
+  VORTEX_STR:        60,
+  BUOYANCY:          20,
+}
+
+// ─── GLSL sources ────────────────────────────────────────────────────────────
+const VERT = `#version 300 es
+precision highp float;
+layout(location=0) in vec2 aPos;
+out vec2 vUv;
+void main(){
+  vUv = aPos * 0.5 + 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`
+
+const ADVECT = `#version 300 es
+precision highp float;
+precision highp sampler2D;
+in vec2 vUv;
+uniform sampler2D uVelocity;
+uniform sampler2D uSource;
+uniform vec2  uVelTexel;
+uniform float uDt;
+uniform float uDiss;
+out vec4 fragColor;
+void main(){
+  vec2 vel    = texture(uVelocity, vUv).xy;
+  vec2 prevUv = vUv - uDt * vel * uVelTexel;
+  fragColor   = uDiss * texture(uSource, prevUv);
+}`
+
+const CURL = `#version 300 es
+precision mediump float;
+precision mediump sampler2D;
+in vec2 vUv;
+uniform sampler2D uVelocity;
+uniform vec2 uTexel;
+out vec4 fragColor;
+void main(){
+  float L = texture(uVelocity, vUv - vec2(uTexel.x, 0.0)).y;
+  float R = texture(uVelocity, vUv + vec2(uTexel.x, 0.0)).y;
+  float T = texture(uVelocity, vUv + vec2(0.0, uTexel.y)).x;
+  float B = texture(uVelocity, vUv - vec2(0.0, uTexel.y)).x;
+  fragColor = vec4((R - L - T + B) * 0.5, 0.0, 0.0, 1.0);
+}`
+
+const VORTICITY = `#version 300 es
+precision highp float;
+precision highp sampler2D;
+in vec2 vUv;
+uniform sampler2D uVelocity;
+uniform sampler2D uCurl;
+uniform vec2  uTexel;
+uniform float uCurlStr;
+uniform float uDt;
+out vec4 fragColor;
+void main(){
+  float L = abs(texture(uCurl, vUv - vec2(uTexel.x, 0.0)).x);
+  float R = abs(texture(uCurl, vUv + vec2(uTexel.x, 0.0)).x);
+  float T = abs(texture(uCurl, vUv + vec2(0.0, uTexel.y)).x);
+  float B = abs(texture(uCurl, vUv - vec2(0.0, uTexel.y)).x);
+  float C =     texture(uCurl, vUv).x;
+  vec2 force = normalize(vec2(T - B, R - L) + 1e-5) * uCurlStr * C;
+  force.y *= -1.0;
+  vec2 vel   = texture(uVelocity, vUv).xy + force * uDt;
+  fragColor  = vec4(vel, 0.0, 1.0);
+}`
+
+// 浮力：煙霧密度越高，往上的力越大
+const BUOYANCY = `#version 300 es
+precision highp float;
+precision highp sampler2D;
+in vec2 vUv;
+uniform sampler2D uVelocity;
+uniform sampler2D uDensity;
+uniform float uBuoyancy;
+uniform float uDt;
+out vec4 fragColor;
+void main(){
+  float d   = texture(uDensity, vUv).r;
+  vec2 vel  = texture(uVelocity, vUv).xy;
+  vel.y    += d * uBuoyancy * uDt;
+  fragColor = vec4(vel, 0.0, 1.0);
+}`
+
+const DIVERGENCE = `#version 300 es
+precision mediump float;
+precision mediump sampler2D;
+in vec2 vUv;
+uniform sampler2D uVelocity;
+uniform vec2 uTexel;
+out vec4 fragColor;
+void main(){
+  float L = texture(uVelocity, vUv - vec2(uTexel.x, 0.0)).x;
+  float R = texture(uVelocity, vUv + vec2(uTexel.x, 0.0)).x;
+  float T = texture(uVelocity, vUv + vec2(0.0, uTexel.y)).y;
+  float B = texture(uVelocity, vUv - vec2(0.0, uTexel.y)).y;
+  fragColor = vec4(0.5 * (R - L + T - B), 0.0, 0.0, 1.0);
+}`
+
+const PRESSURE = `#version 300 es
+precision mediump float;
+precision mediump sampler2D;
+in vec2 vUv;
+uniform sampler2D uPressure;
+uniform sampler2D uDivergence;
+uniform vec2 uTexel;
+out vec4 fragColor;
+void main(){
+  float L   = texture(uPressure, vUv - vec2(uTexel.x, 0.0)).x;
+  float R   = texture(uPressure, vUv + vec2(uTexel.x, 0.0)).x;
+  float T   = texture(uPressure, vUv + vec2(0.0, uTexel.y)).x;
+  float B   = texture(uPressure, vUv - vec2(0.0, uTexel.y)).x;
+  float div = texture(uDivergence, vUv).x;
+  fragColor = vec4((L + R + T + B - div) * 0.25, 0.0, 0.0, 1.0);
+}`
+
+const GRADIENT = `#version 300 es
+precision highp float;
+precision highp sampler2D;
+in vec2 vUv;
+uniform sampler2D uPressure;
+uniform sampler2D uVelocity;
+uniform vec2 uTexel;
+out vec4 fragColor;
+void main(){
+  float L = texture(uPressure, vUv - vec2(uTexel.x, 0.0)).x;
+  float R = texture(uPressure, vUv + vec2(uTexel.x, 0.0)).x;
+  float T = texture(uPressure, vUv + vec2(0.0, uTexel.y)).x;
+  float B = texture(uPressure, vUv - vec2(0.0, uTexel.y)).x;
+  vec2 vel = texture(uVelocity, vUv).xy - 0.5 * vec2(R - L, T - B);
+  fragColor = vec4(vel, 0.0, 1.0);
+}`
+
+const SPLAT = `#version 300 es
+precision highp float;
+precision highp sampler2D;
+in vec2 vUv;
+uniform sampler2D uTarget;
+uniform vec2  uPoint;
+uniform vec3  uColor;
+uniform float uRadius;
+uniform float uAspect;
+out vec4 fragColor;
+void main(){
+  vec2 p = vUv - uPoint;
+  p.x   *= uAspect;
+  float g = exp(-dot(p, p) / uRadius);
+  vec3  c = texture(uTarget, vUv).rgb + g * uColor;
+  fragColor = vec4(c, 1.0);
+}`
+
+// 在注入點周圍注入環形速度場，主動種下漩渦
+const VORTEX_SPLAT = `#version 300 es
+precision highp float;
+precision highp sampler2D;
+in vec2 vUv;
+uniform sampler2D uTarget;
+uniform vec2  uPoint;
+uniform float uRadius;
+uniform float uStrength;
+uniform float uAspect;
+uniform float uSign;
+out vec4 fragColor;
+void main(){
+  vec2 p  = vUv - uPoint;
+  p.x    *= uAspect;
+  float g = exp(-dot(p, p) / uRadius);
+  float r = length(p) + 1e-4;
+  // 切線方向 × sign 決定順/逆時針
+  vec2 tangent = vec2(-p.y, p.x) * uSign / r;
+  vec2 vel = texture(uTarget, vUv).xy + tangent * g * uStrength;
+  fragColor = vec4(vel, 0.0, 1.0);
+}`
+
+// 四層獨立 density 疊合顯示（C=背景，A=下層，B=上層，D=祥雲）
+const DISPLAY = `#version 300 es
+precision highp float;
+precision highp sampler2D;
+in vec2 vUv;
+uniform sampler2D uDensityA;
+uniform sampler2D uDensityB;
+uniform sampler2D uDensityC;
+uniform sampler2D uDensityD;
+uniform float uOpacity;
+uniform float uMaskTop;
+uniform float uRimOff;
+uniform float uRimAmp;
+uniform float uRimStr;
+out vec4 fragColor;
+void main(){
+  float fade       = 1.0 - smoothstep(0.70, 0.92, vUv.y);
+  float fadeTop    = 1.0 - smoothstep(0.76, 0.98, vUv.y);       // 上層用更緩的 fade
+  float spiralFade = 1.0 - smoothstep(0.88, 0.99, vUv.y);       // 祥雲只在最頂端消退
+  float spiralM    = smoothstep(0.70, 0.78, vUv.y);             // 祥雲從 0.70 向上淡入
+  float cloudFade  = spiralM * spiralFade;
+  float maskY      = smoothstep(0.0, uMaskTop, vUv.y);
+
+  float dC = pow(clamp(texture(uDensityC, vUv).r * 0.70, 0.0, 1.0), 0.95) * fade      * maskY * uOpacity * 0.65;
+  float dA = pow(clamp(texture(uDensityA, vUv).r * 0.85, 0.0, 1.0), 0.82) * fade      * maskY * uOpacity;
+  float dB = pow(clamp(texture(uDensityB, vUv).r * 0.85, 0.0, 1.0), 0.82) * fadeTop   * maskY * uOpacity;
+  float dD = pow(clamp(texture(uDensityD, vUv).r * 0.92, 0.0, 1.0), 0.70) * cloudFade * maskY * uOpacity;
+  float d  = 1.0 - (1.0 - dC) * (1.0 - dA) * (1.0 - dB) * (1.0 - dD);
+
+  float dC_up = pow(clamp(texture(uDensityC, vUv + vec2(0.0, uRimOff)).r * 0.70, 0.0, 1.0), 0.95) * fade      * maskY * uOpacity * 0.65;
+  float dA_up = pow(clamp(texture(uDensityA, vUv + vec2(0.0, uRimOff)).r * 0.85, 0.0, 1.0), 0.82) * fade      * maskY * uOpacity;
+  float dB_up = pow(clamp(texture(uDensityB, vUv + vec2(0.0, uRimOff)).r * 0.85, 0.0, 1.0), 0.82) * fadeTop   * maskY * uOpacity;
+  float dD_up = pow(clamp(texture(uDensityD, vUv + vec2(0.0, uRimOff)).r * 0.92, 0.0, 1.0), 0.70) * cloudFade * maskY * uOpacity;
+  float d_up  = 1.0 - (1.0 - dC_up) * (1.0 - dA_up) * (1.0 - dB_up) * (1.0 - dD_up);
+  float rim   = clamp((d - d_up) * uRimAmp, 0.0, 1.0);
+
+  vec3 smoke = vec3(0.78, 0.83, 0.90);
+  vec3 col   = mix(smoke, vec3(1.0), rim * uRimStr);
+  fragColor  = vec4(col, d);
+}`
+
+// ─── GL helpers ──────────────────────────────────────────────────────────────
+function compile(type, src) {
+  const s = gl.createShader(type)
+  gl.shaderSource(s, src)
+  gl.compileShader(s)
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+    throw new Error(gl.getShaderInfoLog(s) + '\n---\n' + src)
+  return s
+}
+
+function mkProgram(fragSrc) {
+  const prog = gl.createProgram()
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER,   VERT))
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fragSrc))
+  gl.linkProgram(prog)
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS))
+    throw new Error(gl.getProgramInfoLog(prog))
+  const u = {}
+  const n = gl.getProgramParameter(prog, gl.ACTIVE_UNIFORMS)
+  for (let i = 0; i < n; i++) {
+    const name = gl.getActiveUniform(prog, i).name
+    u[name] = gl.getUniformLocation(prog, name)
+  }
+  return { prog, u }
+}
+
+function mkFBO(w, h) {
+  const tex = gl.createTexture()
+  gl.bindTexture(gl.TEXTURE_2D, tex)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, LINEAR)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, LINEAR)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null)
+
+  const fb = gl.createFramebuffer()
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb)
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0)
+  gl.viewport(0, 0, w, h)
+  gl.clearColor(0, 0, 0, 1)
+  gl.clear(gl.COLOR_BUFFER_BIT)
+
+  return {
+    tex, fb, w, h,
+    tx: 1 / w,
+    ty: 1 / h,
+    bind(unit) {
+      gl.activeTexture(gl.TEXTURE0 + unit)
+      gl.bindTexture(gl.TEXTURE_2D, tex)
+      return unit
+    }
+  }
+}
+
+class PingPong {
+  constructor(w, h) {
+    this.a = mkFBO(w, h)
+    this.b = mkFBO(w, h)
+    this.r = this.a
+    this.w = this.b
+  }
+  swap() { const t = this.r; this.r = this.w; this.w = t }
+}
+
+const vao = gl.createVertexArray()
+gl.bindVertexArray(vao)
+const vbuf = gl.createBuffer()
+gl.bindBuffer(gl.ARRAY_BUFFER, vbuf)
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW)
+gl.enableVertexAttribArray(0)
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
+
+function blit(fbo) {
+  if (fbo) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo.fb)
+    gl.viewport(0, 0, fbo.w, fbo.h)
+  } else {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, canvas.width, canvas.height)
+  }
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+}
+
+// ─── Build programs ───────────────────────────────────────────────────────────
+const P = {
+  advect:      mkProgram(ADVECT),
+  curl:        mkProgram(CURL),
+  vorticity:   mkProgram(VORTICITY),
+  buoyancy:    mkProgram(BUOYANCY),
+  divergence:  mkProgram(DIVERGENCE),
+  pressure:    mkProgram(PRESSURE),
+  gradient:    mkProgram(GRADIENT),
+  splat:       mkProgram(SPLAT),
+  vortexSplat: mkProgram(VORTEX_SPLAT),
+  display:     mkProgram(DISPLAY),
+}
+
+// ─── FBO allocation — 每層各自獨立一套流體 FBO ───────────────────────────────
+function makeSimLayer() {
+  const S = CFG.SIM, D = CFG.DYE
+  return {
+    velocity: new PingPong(S, S),
+    density:  new PingPong(D, D),
+    pressure: new PingPong(S, S),
+    curl:     mkFBO(S, S),
+    div:      mkFBO(S, S),
+  }
+}
+
+const layerBg    = makeSimLayer()   // 背景層：大型外緣煙霧
+const layerBot   = makeSimLayer()   // 下層：窄柱
+const layerTop   = makeSimLayer()   // 上層：寬雲
+const layerCloud = makeSimLayer()   // 祥雲層：低浮力 + 慢消散
+
+const nullFBO = mkFBO(1, 1)   // 全黑替代紋理，用於隱藏層
+const vis = { bg: true, bot: true, top: false, cloud: true }
+
+// ─── Splat ───────────────────────────────────────────────────────────────────
+// L: 目標 layer（layerBot / layerTop），scale: 強度，sign: 方向，rs: radius 倍率
+function splat(L, nx, ny, dvx, dvy, scale = 1.0, sign = null, rs = 1.0) {
+  const aspect = canvas.width / canvas.height
+
+  const len = Math.sqrt(dvx * dvx + dvy * dvy) || 1e-5
+  const maxLen = 0.05
+  if (len > maxLen) { dvx = dvx / len * maxLen; dvy = dvy / len * maxLen }
+
+  // 1. 方向速度
+  const { prog: sp, u: su } = P.splat
+  gl.useProgram(sp)
+  gl.uniform2f(su.uPoint, nx, ny)
+  gl.uniform1f(su.uAspect, aspect)
+  gl.uniform1f(su.uRadius, CFG.SPLAT_RADIUS * rs)
+  gl.uniform1i(su.uTarget, L.velocity.r.bind(0))
+  gl.uniform3f(su.uColor, dvx * CFG.SPLAT_FORCE * scale, dvy * CFG.SPLAT_FORCE * scale, 0)
+  blit(L.velocity.w); L.velocity.swap()
+
+  // 2. 煙霧密度
+  gl.useProgram(sp)
+  gl.uniform1i(su.uTarget, L.density.r.bind(0))
+  gl.uniform3f(su.uColor, scale, scale, scale)
+  blit(L.density.w); L.density.swap()
+}
+
+// ─── Vortex injector（用於祥雲螺旋力場）────────────────────────────────────────
+function injectVortex(L, nx, ny, sign, radiusMult = 1.0, strMult = 1.0) {
+  const aspect = canvas.width / canvas.height
+  const { prog, u } = P.vortexSplat
+  gl.useProgram(prog)
+  gl.uniform2f(u.uPoint,    nx, ny)
+  gl.uniform1f(u.uAspect,   aspect)
+  gl.uniform1f(u.uRadius,   CFG.VORTEX_RADIUS * radiusMult)
+  gl.uniform1f(u.uStrength, CFG.VORTEX_STR    * strMult)
+  gl.uniform1f(u.uSign,     sign)
+  gl.uniform1i(u.uTarget,   L.velocity.r.bind(0))
+  blit(L.velocity.w); L.velocity.swap()
+}
+
+// ─── Simulation step ─────────────────────────────────────────────────────────
+function step(dt, L) {
+  const tx = L.velocity.r.tx, ty = L.velocity.r.ty
+
+  // 1. Curl
+  {
+    const { prog, u } = P.curl
+    gl.useProgram(prog)
+    gl.uniform1i(u.uVelocity, L.velocity.r.bind(0))
+    gl.uniform2f(u.uTexel, tx, ty)
+    blit(L.curl)
+  }
+
+  // 2. Vorticity confinement
+  {
+    const { prog, u } = P.vorticity
+    gl.useProgram(prog)
+    gl.uniform1i(u.uVelocity, L.velocity.r.bind(0))
+    gl.uniform1i(u.uCurl,     L.curl.bind(1))
+    gl.uniform2f(u.uTexel, tx, ty)
+    gl.uniform1f(u.uCurlStr, CFG.CURL)
+    gl.uniform1f(u.uDt, dt)
+    blit(L.velocity.w); L.velocity.swap()
+  }
+
+  // 3. Buoyancy
+  {
+    const { prog, u } = P.buoyancy
+    gl.useProgram(prog)
+    gl.uniform1i(u.uVelocity, L.velocity.r.bind(0))
+    gl.uniform1i(u.uDensity,  L.density.r.bind(1))
+    gl.uniform1f(u.uBuoyancy, CFG.BUOYANCY)
+    gl.uniform1f(u.uDt, dt)
+    blit(L.velocity.w); L.velocity.swap()
+  }
+
+  // 4. Divergence
+  {
+    const { prog, u } = P.divergence
+    gl.useProgram(prog)
+    gl.uniform1i(u.uVelocity, L.velocity.r.bind(0))
+    gl.uniform2f(u.uTexel, tx, ty)
+    blit(L.div)
+  }
+
+  // 5. Pressure Jacobi
+  {
+    const { prog, u } = P.pressure
+    gl.useProgram(prog)
+    gl.uniform2f(u.uTexel, tx, ty)
+    gl.uniform1i(u.uDivergence, L.div.bind(0))
+    for (let i = 0; i < CFG.PRESSURE_ITER; i++) {
+      gl.uniform1i(u.uPressure, L.pressure.r.bind(1))
+      blit(L.pressure.w); L.pressure.swap()
+    }
+  }
+
+  // 6. Subtract pressure gradient
+  {
+    const { prog, u } = P.gradient
+    gl.useProgram(prog)
+    gl.uniform2f(u.uTexel, tx, ty)
+    gl.uniform1i(u.uPressure, L.pressure.r.bind(0))
+    gl.uniform1i(u.uVelocity, L.velocity.r.bind(1))
+    blit(L.velocity.w); L.velocity.swap()
+  }
+
+  // 7. Advect velocity
+  {
+    const { prog, u } = P.advect
+    gl.useProgram(prog)
+    gl.uniform2f(u.uVelTexel, tx, ty)
+    gl.uniform1f(u.uDt,   dt)
+    gl.uniform1f(u.uDiss, CFG.VEL_DISSIPATION)
+    gl.uniform1i(u.uVelocity, L.velocity.r.bind(0))
+    gl.uniform1i(u.uSource,   L.velocity.r.bind(0))
+    blit(L.velocity.w); L.velocity.swap()
+  }
+
+  // 8. Advect density
+  {
+    const { prog, u } = P.advect
+    gl.uniform1f(u.uDiss, CFG.INK_DISSIPATION)
+    gl.uniform1i(u.uVelocity, L.velocity.r.bind(0))
+    gl.uniform1i(u.uSource,   L.density.r.bind(1))
+    blit(L.density.w); L.density.swap()
+  }
+}
+
+// ─── Display uniforms (driven by UI sliders) ─────────────────────────────────
+const DISP = { opacity: 1.0, maskTop: 0.56, rimOff: 0.002, rimAmp: 12.0, rimStr: 1.5 }
+
+// ─── Render ──────────────────────────────────────────────────────────────────
+function render() {
+  const { prog, u } = P.display
+  gl.useProgram(prog)
+  gl.uniform1i(u.uDensityC, (vis.bg    ? layerBg.density.r    : nullFBO).bind(0))
+  gl.uniform1i(u.uDensityA, (vis.bot   ? layerBot.density.r   : nullFBO).bind(1))
+  gl.uniform1i(u.uDensityB, (vis.top   ? layerTop.density.r   : nullFBO).bind(2))
+  gl.uniform1i(u.uDensityD, (vis.cloud ? layerCloud.density.r : nullFBO).bind(3))
+  gl.uniform1f(u.uOpacity,  DISP.opacity)
+  gl.uniform1f(u.uMaskTop,  DISP.maskTop)
+  gl.uniform1f(u.uRimOff,   DISP.rimOff)
+  gl.uniform1f(u.uRimAmp,   DISP.rimAmp)
+  gl.uniform1f(u.uRimStr,   DISP.rimStr)
+  blit(null)
+}
+
+// ─── Input ───────────────────────────────────────────────────────────────────
+const mouse = { down: false, x: 0.5, y: 0.1, px: 0.5, py: 0.1 }
+
+function toUV(clientX, clientY) {
+  return {
+    x: clientX / canvas.clientWidth,
+    y: 1 - clientY / canvas.clientHeight,
+  }
+}
+
+canvas.addEventListener('mousedown', e => {
+  mouse.down = true
+  const { x, y } = toUV(e.clientX, e.clientY)
+  mouse.x = mouse.px = x
+  mouse.y = mouse.py = y
+})
+canvas.addEventListener('mousemove', e => {
+  if (!mouse.down) return
+  mouse.px = mouse.x; mouse.py = mouse.y
+  const { x, y } = toUV(e.clientX, e.clientY)
+  mouse.x = x; mouse.y = y
+})
+canvas.addEventListener('mouseup',    () => mouse.down = false)
+canvas.addEventListener('mouseleave', () => mouse.down = false)
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault()
+  mouse.down = true
+  const t = e.touches[0]
+  const { x, y } = toUV(t.clientX, t.clientY)
+  mouse.x = mouse.px = x; mouse.y = mouse.py = y
+}, { passive: false })
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault()
+  if (!mouse.down) return
+  mouse.px = mouse.x; mouse.py = mouse.y
+  const t = e.touches[0]
+  const { x, y } = toUV(t.clientX, t.clientY)
+  mouse.x = x; mouse.y = y
+}, { passive: false })
+canvas.addEventListener('touchend', () => mouse.down = false, { passive: false })
+
+// ─── 自動煙霧源（底部三個點，輕微左右搖擺）────────────────────────────────────
+const sources = [
+  { x: 0.25, phase: 0.0,  speed: 0.35 },
+  { x: 0.50, phase: 2.09, speed: 0.28 },
+  { x: 0.75, phase: 4.19, speed: 0.42 },
+]
+
+let autoTimer = -999
+function autoSplat(t) {
+  if (mouse.down) return
+  if (t - autoTimer < 0.10) return
+  autoTimer = t
+
+  const src = sources[Math.floor(t * 3) % sources.length]
+  const wobble = Math.sin(t * src.speed + src.phase) * 0.05
+  const nx = src.x + wobble
+  const ny = 0.03 + Math.random() * 0.02
+  splat(layerBot, nx, ny, wobble * 0.4, 0.055 + Math.random() * 0.025)
+}
+
+// ─── 兩層筆刷示範動畫 ──────────────────────────────────────────────────────────
+const STEP = 0.014
+
+const YELLOW_LINE = 0.60
+const GREEN_LINE  = 0.85
+
+function makeLayer({ n, xMin, xMax, yStart, ySpread, speedMin, speedMax, sizeMin, sizeMax, wBase, ceil, side = 0 }) {
+  function makeBrush() {
+    const b = {
+      x:     xMin + Math.random() * (xMax - xMin),
+      y:     yStart + Math.random() * ySpread,
+      speed: speedMin + Math.random() * (speedMax - speedMin),
+      vx:    (Math.random() - 0.5) * 0.012,
+      sign:  Math.random() > 0.5 ? 1 : -1,
+      size:  sizeMin + Math.random() * (sizeMax - sizeMin),
+      w:     wBase * (0.6 + Math.random() * 0.8),
+      ceil,
+      side,
+    }
+    b.reset = () => {
+      b.x     = xMin + Math.random() * (xMax - xMin)
+      b.y     = yStart + Math.random() * ySpread
+      b.speed = speedMin + Math.random() * (speedMax - speedMin)
+      b.vx    = (Math.random() - 0.5) * 0.012
+      b.sign  = Math.random() > 0.5 ? 1 : -1
+      b.size  = sizeMin + Math.random() * (sizeMax - sizeMin)
+      b.w     = wBase * (0.6 + Math.random() * 0.8)
+    }
+    return b
+  }
+  return Array.from({ length: n }, makeBrush)
+}
+
+// 背景層：左右外緣各 5 支，大型擴散雲，疊在前景煙霧下方
+const bgLayer = [
+  ...makeLayer({ n: 5, xMin: 0.00, xMax: 0.20, yStart: 0.02, ySpread: 0.12, speedMin: 0.04, speedMax: 0.08, sizeMin: 1.2, sizeMax: 2.8, wBase: 2.0, ceil: 0.88, side: -1 }),
+  ...makeLayer({ n: 5, xMin: 0.80, xMax: 1.00, yStart: 0.02, ySpread: 0.12, speedMin: 0.04, speedMax: 0.08, sizeMin: 1.2, sizeMax: 2.8, wBase: 2.0, ceil: 0.88, side:  1 }),
+]
+
+// 下層：左右各 1 支，底部維持原始寬度，中間極少
+const bottomLayer = [
+  ...makeLayer({ n: 1, xMin: 0.03, xMax: 0.30, yStart: 0.02, ySpread: 0.06, speedMin: 0.03, speedMax: 0.06, sizeMin: 0.25, sizeMax: 0.50, wBase: 1.2, ceil: 0.62, side: -1 }),
+  ...makeLayer({ n: 1, xMin: 0.70, xMax: 0.97, yStart: 0.02, ySpread: 0.06, speedMin: 0.03, speedMax: 0.06, sizeMin: 0.25, sizeMax: 0.50, wBase: 1.2, ceil: 0.62, side:  1 }),
+  ...makeLayer({ n: 1, xMin: 0.42, xMax: 0.58, yStart: 0.02, ySpread: 0.03, speedMin: 0.03, speedMax: 0.06, sizeMin: 0.12, sizeMax: 0.25, wBase: 0.45, ceil: 0.62, side: 0 }),
+]
+
+// 上層：左右各 1 支，ceil=0.72 讓煙柱停在螺旋區下方，不干擾 layerCloud
+const topLayer = [
+  ...makeLayer({ n: 1, xMin: 0.03, xMax: 0.30, yStart: 0.03, ySpread: 0.08, speedMin: 0.09, speedMax: 0.14, sizeMin: 0.40, sizeMax: 0.85, wBase: 0.85, ceil: 0.72, side: -1 }),
+  ...makeLayer({ n: 1, xMin: 0.70, xMax: 0.97, yStart: 0.03, ySpread: 0.08, speedMin: 0.09, speedMax: 0.14, sizeMin: 0.40, sizeMax: 0.85, wBase: 0.85, ceil: 0.72, side:  1 }),
+  ...makeLayer({ n: 1, xMin: 0.42, xMax: 0.58, yStart: 0.03, ySpread: 0.04, speedMin: 0.09, speedMax: 0.14, sizeMin: 0.20, sizeMax: 0.50, wBase: 0.40, ceil: 0.72, side: 0 }),
+]
+
+// ─── 頂部渦旋：注入 layerTop，讓白煙頂端自然捲出螺旋弧臂
+let cloudTimer = 0
+let bgSpiralTimer = 0
+
+// ─── Main loop ────────────────────────────────────────────────────────────────
+let lastT = 0
+let frameCount = 0
+function loop(t) {
+  requestAnimationFrame(loop)
+  frameCount++
+  const dt = Math.min((t - lastT) * 0.001, 0.033)
+  lastT = t
+
+  // 背景層：大型外緣煙霧
+  for (const b of bgLayer) {
+    const dist = b.speed * dt
+    b.y += dist
+    if (b.side !== 0) {
+      b.vx += (-b.side) * 0.006 * dt   // 極輕微向內漂
+      b.vx = Math.max(-0.08, Math.min(0.08, b.vx))
+    }
+    b.x += b.vx * dt
+    if (b.y <= b.ceil) {
+      const scale = (dist / STEP) * b.w
+      const rs = b.size * (1 + b.y * 3.5)   // 隨高度大幅放大
+      splat(layerBg, b.x, b.y, b.vx * 0.05, 0.006 * scale, scale * 0.75, b.sign, rs)
+    } else { b.reset() }
+  }
+
+  for (const b of bottomLayer) {
+    const dist = b.speed * dt
+    b.y += dist
+    if (b.side !== 0) {
+      let fanAcc
+      if      (b.y > GREEN_LINE)  fanAcc = 0.08
+      else if (b.y > YELLOW_LINE) fanAcc = 0.005
+      else                        fanAcc = 0.0005
+      b.vx += (-b.side) * fanAcc * dt
+      b.vx = Math.max(-0.12, Math.min(0.12, b.vx))
+    } else {
+      // S 形曲線：sin(y) 一個週期剛好對應整段上升距離，下半偏一側、上半偏回
+      const vxTarget = b.sign * Math.sin(b.y * Math.PI / 0.30) * 0.1
+      b.vx += (vxTarget - b.vx) * 0.08
+    }
+    b.x += b.vx * dt
+    if (b.y <= b.ceil) {
+      const scale = (dist / STEP) * b.w
+      const rs = b.size * (1 + b.y * 2.5)
+      splat(layerBot, b.x, b.y, b.vx * 0.1, 0.008 * scale, scale, b.sign, rs)
+    } else { b.reset() }
+  }
+
+  for (const b of topLayer) {
+    const dist = b.speed * dt
+    b.y += dist
+    if (b.side !== 0) {
+      let fanAcc
+      if      (b.y > GREEN_LINE)  fanAcc = 0.08
+      else if (b.y > YELLOW_LINE) fanAcc = 0.02
+      else                        fanAcc = 0.001
+      b.vx += (-b.side) * fanAcc * dt   // 全程向內（力道減輕）
+      b.vx = Math.max(-0.12, Math.min(0.12, b.vx))
+    }
+    b.x += b.vx * dt
+    if (b.y <= b.ceil) {
+      const scale = (dist / STEP) * b.w
+      const rs = b.size * (1 + b.y * 1.8)
+      splat(layerTop, b.x, b.y, b.vx * 0.1, 0.008 * scale, scale, b.sign, rs)
+    } else { b.reset() }
+  }
+
+  // 接力注入 layerCloud：在螺旋區底部補充密度 + 渦旋塑形（物理分區，不干擾主煙柱）
+  cloudTimer += dt
+  if (cloudTimer >= 0.4) {
+    splat(layerCloud, 0.20, 0.75, 0, 0, 0.12, null, 4)   // 左側密度
+    splat(layerCloud, 0.80, 0.75, 0, 0, 0.12, null, 4)   // 右側密度
+    injectVortex(layerCloud, 0.22, 0.78,  1, 3, 0.08)    // 左渦旋（逆時針）
+    injectVortex(layerCloud, 0.78, 0.78, -1, 3, 0.08)    // 右渦旋（順時針）
+    cloudTimer = 0
+  }
+
+  if (mouse.down) {
+    const dx = mouse.x - mouse.px
+    const dy = mouse.y - mouse.py
+    if (Math.abs(dx) + Math.abs(dy) > 2e-4) {
+      splat(layerBot, mouse.x, mouse.y, dx * 10, dy * 10)
+    } else {
+      splat(layerBot, mouse.x, mouse.y, (Math.random() - 0.5) * 0.012, 0.035)
+    }
+  }
+
+  // 背景大螺旋：頂端注入單一大渦旋，讓上升的背景煙捲成往內轉的螺旋
+  bgSpiralTimer += dt
+  if (bgSpiralTimer >= 0.50) {
+    injectVortex(layerBg, 0.50, 0.82, 1, 4, 0.08)   // 中央逆時針輕螺旋
+    bgSpiralTimer = 0
+  }
+
+  step(dt, layerBg)
+  step(dt, layerBot)
+  step(dt, layerTop)
+
+  // 祥雲層：低浮力 + 慢消散，形狀變化極慢，隔幀更新人眼感覺不出來
+  if (frameCount % 2 === 0) {
+    const _b = CFG.BUOYANCY; const _d = CFG.INK_DISSIPATION
+    CFG.BUOYANCY = 0.0;  CFG.INK_DISSIPATION = 0.996
+    step(dt * 2, layerCloud)   // 補回跳過的 dt
+    CFG.BUOYANCY = _b;   CFG.INK_DISSIPATION = _d
+  }
+
+  render()
+}
+requestAnimationFrame(loop)
+
+// ─── postMessage control from parent page ────────────────────────────────────
+window.addEventListener('message', (e) => {
+  const { type, key, value } = e.data || {}
+  if (type === 'smoke-disp') DISP[key] = value
+  else if (type === 'smoke-vis') vis[key] = value
+})
+</script>
+</body>
+</html>

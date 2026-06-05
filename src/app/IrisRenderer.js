@@ -12,7 +12,7 @@ canvas.height = H
 const ctx = canvas.getContext('2d')
 
 export const L = {
-  base: true, limbal: true, fibres: true, wavy: true,
+  base: true, limbal: false, fibres: false, wavy: true,
   petal1: true, petal2: true, rings: false, collarette: true, pupil: true, highlight: true,
 }
 
@@ -27,7 +27,7 @@ export const baseFx = {
 }
 
 export const petalFx = {
-  petal1: { color: '#d0d0d0', blob: 4,  blur: 3,   stick: 6.5, speed: 0.5, opacity: 1.00, curl: 0.30, scale: 1.0 },
+  petal1: { color: '#ffffff', blob: 4,  blur: 3,   stick: 6.5, speed: 0.5, opacity: 0.50, curl: 0.30, scale: 1.13 },
   petal2: { color: '#606060', blob: 5,  blur: 4,   stick: 9.5, speed: 1.3, opacity: 0.82, curl: 0.10, scale: 1.0 },
 }
 
@@ -36,6 +36,10 @@ export const ringFx = { color: '#e0e0e0', blur: 28, stick: 28, opacity: 0.62, sc
 export const limbalFx = { color: '#000000', opacity: 0.82, range: 0.72 }
 
 export const vignetteFx = { enabled: true, opacity: 0.85, range: 0.72 }
+
+export const pupilFx = { size: 0.62, edge: 0.11 }
+
+export const pupilRingFx = { enabled: true, color: '#5e3131', opacity: 1.0, width: 0.29, sharp: 1.0 }
 
 function mkCanvas() {
   const el = document.createElement('canvas')
@@ -165,12 +169,12 @@ function drawDepthFibresSurface() {
   function surfSway(f) {
     const baseAng = f.angle + surfRotAngle
     return surfRotAngle
-         + Math.sin(t * dynSpd + f.phase) * goo.swayAmp
-         + Math.sin(t * dynSpd * 0.41 + f.phase * 1.8) * goo.swayAmp * 0.30
+         + Math.sin(surfSwayPhase + f.phase) * goo.swayAmp
+         + Math.sin(surfSwayPhase * 0.41 + f.phase * 1.8) * goo.swayAmp * 0.30
          + Math.sin(travelPhase - baseAng * 2.3) * goo.swayAmp * 0.45
   }
   function surfEndR(f) {
-    const pulse = Math.sin(t * dynSpd * 0.58 + f.phase * 2.1) * 9
+    const pulse = Math.sin(surfSwayPhase * 0.58 + f.phase * 2.1) * 9
                 + Math.sin(travelPhase * 0.65 - f.angle * 3.1) * 5
     return Math.min(Math.max(f.endR + pulse, f.startR + 10), R - 3)
   }
@@ -312,11 +316,11 @@ function drawP2(rctx, fx) {
   }
 }
 
-let t = 0, pupilScale = 1, targetPupil = 1, surfRotAngle = 0
+let t = 0, pupilScale = 1, targetPupil = 1, surfRotAngle = 0, surfSwayPhase = 0, irisOpenFactor = 1
 
 function draw() {
   ctx.clearRect(0, 0, W, H)
-  const pupilR = R * 0.26 * pupilScale
+  const pupilR = R * pupilFx.size * pupilScale
 
   ctx.save()
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.clip()
@@ -363,13 +367,34 @@ function draw() {
   }
 
   if (L.pupil) {
+    const soft = Math.max(0.01, Math.min(0.5, pupilFx.edge))
     const pg = ctx.createRadialGradient(cx, cy, 0, cx, cy, pupilR)
-    pg.addColorStop(0, '#0a0010'); pg.addColorStop(1, '#000')
-    ctx.beginPath(); ctx.arc(cx, cy, pupilR, 0, TAU); ctx.fillStyle = pg; ctx.fill()
+    pg.addColorStop(0,        'rgba(0,0,0,1)')
+    pg.addColorStop(1 - soft, 'rgba(0,0,0,1)')
+    pg.addColorStop(1,        'rgba(0,0,0,0)')
+    ctx.beginPath(); ctx.arc(cx, cy, pupilR, 0, TAU)
+    ctx.fillStyle = pg; ctx.fill()
+  }
 
-    const pe = ctx.createRadialGradient(cx, cy, pupilR * 0.82, cx, cy, pupilR * 1.08)
-    pe.addColorStop(0, 'rgba(0,0,0,0)'); pe.addColorStop(1, 'rgba(0,0,0,0.6)')
-    ctx.beginPath(); ctx.arc(cx, cy, pupilR * 1.08, 0, TAU); ctx.fillStyle = pe; ctx.fill()
+  if (L.pupil && pupilRingFx.enabled && pupilRingFx.opacity > 0) {
+    const hex = pupilRingFx.color
+    const cr = parseInt(hex.slice(1,3),16), cg = parseInt(hex.slice(3,5),16), cb = parseInt(hex.slice(5,7),16)
+    const innerR = pupilR * 0.84
+    const outerR = pupilR * (1 + pupilRingFx.width)
+    const peak   = (pupilR - innerR) / (outerR - innerR)
+    const feather = Math.max(0.015, (1 - pupilRingFx.sharp) * 0.45)
+    const lo = Math.max(0.005, peak - feather)
+    const hi = Math.min(0.995, peak + feather)
+    const opc = pupilRingFx.opacity
+    const rg = ctx.createRadialGradient(cx, cy, innerR, cx, cy, outerR)
+    rg.addColorStop(0,   `rgba(${cr},${cg},${cb},0)`)
+    rg.addColorStop(lo,  `rgba(${cr},${cg},${cb},${opc})`)
+    rg.addColorStop(hi,  `rgba(${cr},${cg},${cb},${opc})`)
+    rg.addColorStop(1,   `rgba(${cr},${cg},${cb},0)`)
+    ctx.save()
+    ctx.beginPath(); ctx.arc(cx, cy, outerR, 0, TAU)
+    ctx.fillStyle = rg; ctx.fill()
+    ctx.restore()
   }
 
   ctx.restore() // end iris clip
@@ -388,15 +413,18 @@ function draw() {
   }
 }
 
-export function tick() {
+export function tick(openFactor = 1) {
   t++
   pupilScale += (targetPupil - pupilScale) * 0.055
 
   const phase   = (t * 0.01) % 1
   const autoSpd = phase < 0.5 ? phase * 200 : (1 - phase) * 200
   fiberFx.goo.swaySpd = autoSpd / 10000
+  fiberFx.goo.swayAmp = (0.5 - 0.5 * Math.cos(t * 0.030)) * (100 / 2200)
 
   const dynSpd = fiberFx.goo.swaySpd * (1 + 0.7 * Math.sin(t * 0.00040) + 0.3 * Math.sin(t * 0.00017))
-  surfRotAngle += dynSpd * 0.28
+  irisOpenFactor += (openFactor - irisOpenFactor) * 0.06
+  surfSwayPhase += dynSpd
+  surfRotAngle += 0.0002 + irisOpenFactor * 0.0026
   draw()
 }

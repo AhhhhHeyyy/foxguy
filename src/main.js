@@ -16,14 +16,19 @@ import LayerPanel from './ui/LayerPanel.js'
 import { parallaxConfig } from './app/ParallaxConfig.js'
 
 const EAR_CLOSED = 0.18
+const EAR_OPEN   = 0.35
 
 async function main() {
   const videoEl = document.getElementById('webcam')
 
-  const pixiApp = new PixiApp()
-  await pixiApp.ready
+  const pixiAppBottom = new PixiApp('app-bottom')
+  const pixiAppTop    = new PixiApp('app-top')
+  await Promise.all([pixiAppBottom.ready, pixiAppTop.ready])
 
-  const compositor = new LayerCompositor(pixiApp.app.stage)
+  // Bottom canvas drives layers 0/1 only; render it manually each frame
+  pixiAppBottom.app.ticker.stop()
+
+  const compositor = new LayerCompositor(pixiAppBottom.app.stage, pixiAppTop.app.stage)
   await compositor.load()
 
   const animator = new EyelidAnimator(compositor.sprite61, compositor.sprite62)
@@ -35,7 +40,8 @@ async function main() {
   const dissolveFilter = new DissolveFilter()
   const bloomFilter = new BloomFilter()
   const particleFilter = new ParticleFilter()
-  const paperGrainFilter = new PaperGrainFilter()
+  const paperGrainFilter     = new PaperGrainFilter()
+  const irisGrainFilter      = new PaperGrainFilter(500, 500)
 
   distortionFilter2.enabled = false
   distortionFilter4.enabled = false
@@ -44,20 +50,21 @@ async function main() {
   bloomFilter.enabled = false
   particleFilter.enabled = false
 
-  compositor.bloodPool.sprite.filters = [paperGrainFilter]
+  compositor.bloodPool.sprite.filters    = [paperGrainFilter]
+  compositor.irisEyeLayer.sprite.filters = [irisGrainFilter]
 
   compositor.sprites['2'].filters = [distortionFilter2]
   compositor.sprites['3'].filters = [dissolveFilter]
   compositor.sprites['4'].filters = [distortionFilter4]
   compositor.sprites['5'].filters = [distortionFilter5]
-  pixiApp.app.stage.filters = [bloomFilter, particleFilter]
+  pixiAppTop.app.stage.filters = [bloomFilter, particleFilter]
 
   // Start camera and face tracking (non-blocking — detect when ready)
   const camera = new CameraManager(videoEl)
   const faceLandmarker = new FaceLandmarkerManager()
   const debugOverlay = new DebugOverlay()
 
-  new LayerPanel(compositor, {
+  const layerPanel = new LayerPanel(compositor, {
     eyelidAnimator: animator,
     parallaxConfig,
     bloodPool: compositor.bloodPool,
@@ -67,6 +74,7 @@ async function main() {
       '4': [{ filter: distortionFilter4, label: 'Distortion' }],
       '5': [{ filter: distortionFilter5, label: 'Distortion' }],
       blood: [{ filter: paperGrainFilter, label: 'Paper Grain' }],
+      iris:  [{ filter: irisGrainFilter,  label: 'Paper Grain' }],
     },
     stageFilters: [
       { filter: bloomFilter, label: 'Bloom' },
@@ -74,13 +82,18 @@ async function main() {
     ],
   })
 
-  // Render loop
-  pixiApp.app.ticker.add((ticker) => {
+  const DETECT_INTERVAL = 1000 / 15  // 15fps for face tracking
+  let lastDetectTime = 0
+
+  // Render loop — driven by top canvas ticker; bottom canvas rendered manually
+  pixiAppTop.app.ticker.add((ticker) => {
     AppState.time += ticker.deltaMS / 1000
     AppState.frameCount++
 
-    // MediaPipe detect (only when both are ready)
-    if (camera.isReady && faceLandmarker.isReady) {
+    // MediaPipe detect at 15fps — decoupled from render to avoid GPU contention
+    const now = performance.now()
+    if (camera.isReady && faceLandmarker.isReady && now - lastDetectTime >= DETECT_INTERVAL) {
+      lastDetectTime = now
       const result = faceLandmarker.detect(videoEl)
       if (result && result.faceLandmarks.length > 0) {
         const lm = result.faceLandmarks[0]
@@ -119,8 +132,11 @@ async function main() {
     // Eyelid animation
     animator.update(AppState.ear)
 
-    // Iris eye animation
-    compositor.irisEyeLayer.tick()
+    // Iris eye animation — opacity + rotation speed driven by eye openness
+    const openFactor = Math.max(0, Math.min(1, (AppState.ear - EAR_CLOSED) / (EAR_OPEN - EAR_CLOSED)))
+    const irisSprite = compositor.irisEyeLayer.sprite
+    irisSprite.alpha += (openFactor - irisSprite.alpha) * 0.08
+    compositor.irisEyeLayer.tick(openFactor)
 
     // Blood pool animation
     compositor.bloodPool.tick(AppState.time)
@@ -129,6 +145,7 @@ async function main() {
     const px = -AppState.head.x * parallaxConfig.strengthX
     const py = -AppState.head.y * parallaxConfig.strengthY
     const pz =  AppState.head.z * parallaxConfig.strengthZ / 100
+    layerPanel.updateParallaxValues(px, py, pz)
     for (const [key, depth] of Object.entries(parallaxConfig.layers)) {
       const sprite = compositor.sprites[key]
       if (sprite) {
@@ -166,6 +183,10 @@ async function main() {
     bloomFilter.update(AppState)
     particleFilter.update(AppState)
     paperGrainFilter.update(AppState)
+    irisGrainFilter.update(AppState)
+
+    // Render layers 0/1 (bottom canvas, ticker stopped)
+    pixiAppBottom.render()
   })
 }
 

@@ -24,6 +24,8 @@ export default class BloodPoolLayer {
     this.maskLeft  = 0.0
     this.maskRight = 1.0
 
+    this._lastDrawTime = 0
+
     this._canvas = document.createElement('canvas')
     this._canvas.width  = CW
     this._canvas.height = CH
@@ -37,6 +39,9 @@ export default class BloodPoolLayer {
   }
 
   tick(time) {
+    const now = performance.now()
+    if (now - this._lastDrawTime < 1000 / 30) return
+    this._lastDrawTime = now
     this._draw(time)
     this._source.update()
   }
@@ -245,7 +250,7 @@ export default class BloodPoolLayer {
       hillGrad.addColorStop(0.62, `rgba(3, 0, 0, ${0.26 * ss})`)
       hillGrad.addColorStop(1,    'rgba(0, 0, 0, 0)')
       ctx.save()
-      ctx.filter = 'blur(14px)'
+      ctx.filter = 'blur(6px)'
       ctx.fillStyle = hillGrad
       ctx.fill(arch)
       ctx.restore()
@@ -299,7 +304,7 @@ export default class BloodPoolLayer {
       ctx.clip(this._bandPath(upper.pts, lower.pts))
 
       // Dark shadow just below the crest
-      ctx.filter = 'blur(5px)'
+      ctx.filter = 'blur(2px)'
       ctx.beginPath()
       this._trace(ctx, upper.pts)
       ctx.strokeStyle = `rgba(0, 0, 0, ${(0.55 - depth * 0.15) * 0.70 * this.shadowStr})`
@@ -348,7 +353,7 @@ export default class BloodPoolLayer {
       // removes the lower half, leaving a soft white glow that fades upward.
       ctx.save()
       ctx.clip(this._bandPath(upperBound.pts, ridge.pts))
-      ctx.filter = 'blur(9px)'
+      ctx.filter = 'blur(4px)'
       ctx.beginPath()
       this._trace(ctx, ridge.pts)
       ctx.strokeStyle = `rgba(255, 242, 240, ${(0.60 - depth * 0.18) * this.glowStr})`

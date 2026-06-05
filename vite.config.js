@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite'
+import { copyFileSync, mkdirSync } from 'fs'
 
 const suppressMediapipeSourcemapWarning = {
   name: 'suppress-mediapipe-sourcemap',
@@ -11,8 +12,16 @@ const suppressMediapipeSourcemapWarning = {
   },
 }
 
+const copyFluidSim = {
+  name: 'copy-fluid-sim',
+  closeBundle() {
+    mkdirSync('dist/fluid-sim-test', { recursive: true })
+    copyFileSync('fluid-sim-test/smoke.html', 'dist/fluid-sim-test/smoke.html')
+  },
+}
+
 export default defineConfig({
-  plugins: [suppressMediapipeSourcemapWarning],
+  plugins: [suppressMediapipeSourcemapWarning, copyFluidSim],
   server: {
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',

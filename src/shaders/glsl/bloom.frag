@@ -19,11 +19,7 @@ void main() {
   bloom += texture(uTexture, uv + vec2(-radius, 0.0));
   bloom += texture(uTexture, uv + vec2(0.0, radius));
   bloom += texture(uTexture, uv + vec2(0.0, -radius));
-  bloom += texture(uTexture, uv + vec2(radius, radius));
-  bloom += texture(uTexture, uv + vec2(-radius, radius));
-  bloom += texture(uTexture, uv + vec2(radius, -radius));
-  bloom += texture(uTexture, uv + vec2(-radius, -radius));
-  bloom /= 8.0;
+  bloom /= 4.0;
 
   vec3 tint = mix(vec3(0.3, 0.7, 1.0), vec3(1.0, 0.8, 0.3), uEAR);
   fragColor = mix(center, bloom * vec4(tint, 1.0), 0.4 * uIntensity);

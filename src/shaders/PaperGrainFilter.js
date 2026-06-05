@@ -4,20 +4,20 @@ import vertSrc from './glsl/filter.vert?raw'
 import fragSrc from './glsl/paper_grain.frag?raw'
 
 const SCALE = 0.5
-const CW = Math.round(CANVAS_W * SCALE)
-const CH = Math.round(CANVAS_H * SCALE)
+const DEFAULT_W = Math.round(CANVAS_W * SCALE)
+const DEFAULT_H = Math.round(CANVAS_H * SCALE)
 
 export default class PaperGrainFilter extends Filter {
-  constructor() {
+  constructor(texW = DEFAULT_W, texH = DEFAULT_H) {
     const glProgram = GlProgram.from({ vertex: vertSrc, fragment: fragSrc })
     super({
       glProgram,
       resources: {
         uniforms: {
-          uTime:     { value: 0,        type: 'f32' },
-          uTexSize:  { value: [CW, CH], type: 'vec2<f32>' },
-          uGrainStr: { value: 0.55,     type: 'f32' },
-          uPaperStr: { value: 0.45,     type: 'f32' },
+          uTime:     { value: 0,              type: 'f32' },
+          uTexSize:  { value: [texW, texH],   type: 'vec2<f32>' },
+          uGrainStr: { value: 0.55,           type: 'f32' },
+          uPaperStr: { value: 0.45,           type: 'f32' },
         },
       },
     })
