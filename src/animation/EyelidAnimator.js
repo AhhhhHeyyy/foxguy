@@ -29,7 +29,7 @@ export default class EyelidAnimator {
     if (openFactor < 0.1) {
       this.closedFrames = Math.min(this.closedFrames + 1, SUSTAINED_FRAMES)
     } else if (openFactor > 0.4) {
-      this.closedFrames = Math.max(this.closedFrames - 3, 0)
+      this.closedFrames = Math.max(this.closedFrames - 10, 0)
     }
 
     // Quick blink: barely nudges lid; sustained close: lid fully shuts
