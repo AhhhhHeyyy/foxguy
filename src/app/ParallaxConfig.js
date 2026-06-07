@@ -10,7 +10,7 @@ export const parallaxConfig = {
     enabled: true,
     pointA: { x: -6, y: 10 },
     pointB: { x:  3, y: -2 },
-    lerpFactor: 0.08,
+    lerpFactor: 0.25,
     preview: null,
   },
 }

@@ -142,13 +142,22 @@ async function main() {
     ],
   })
 
-  // Mouse tracking for layer5 (normalized 0–1 across the viewport)
+  // Mouse/touch tracking for layer5 (normalized 0–1 relative to the canvas area)
   const mouseRaw    = { x: 0.5, y: 0.5 }
   const mouseSmooth = { x: 0.5, y: 0.5 }
-  window.addEventListener('mousemove', (e) => {
-    mouseRaw.x = e.clientX / window.innerWidth
-    mouseRaw.y = 1 - e.clientY / window.innerHeight
-  })
+  const updateFromClient = (clientX, clientY) => {
+    const rect = pixiAppTop.app.canvas.getBoundingClientRect()
+    mouseRaw.x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    mouseRaw.y = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height))
+  }
+  window.addEventListener('mousemove', (e) => updateFromClient(e.clientX, e.clientY))
+  window.addEventListener('touchmove', (e) => {
+    e.preventDefault()
+    updateFromClient(e.touches[0].clientX, e.touches[0].clientY)
+  }, { passive: false })
+  window.addEventListener('touchstart', (e) => {
+    updateFromClient(e.touches[0].clientX, e.touches[0].clientY)
+  }, { passive: true })
 
   const DETECT_INTERVAL = 1000 / 30  // 30fps for face tracking
   let lastDetectTime = 0
