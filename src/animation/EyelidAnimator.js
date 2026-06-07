@@ -1,10 +1,10 @@
 import { lerp, clamp } from './Lerp.js'
 
-const EAR_CLOSED = 0.18
+const EAR_CLOSED = 0.16
 const EAR_OPEN = 0.35
 
-// Frames of sustained closure before allowing full close (~0.25s at 60fps)
-const SUSTAINED_FRAMES = 15
+// Frames of sustained closure before allowing full close (~0.5s at 60fps)
+const SUSTAINED_FRAMES = 30
 
 export default class EyelidAnimator {
   constructor(sprite61, sprite62) {
@@ -19,13 +19,17 @@ export default class EyelidAnimator {
   }
 
   update(ear) {
-    const openFactor = clamp((ear - EAR_CLOSED) / (EAR_OPEN - EAR_CLOSED), 0, 1)
+    // Low-pass filter to reduce frame-to-frame EAR jitter
+    this.smoothedEar = lerp(this.smoothedEar ?? ear, ear, 0.25)
 
-    // Track sustained closure duration
+    const openFactor = clamp((this.smoothedEar - EAR_CLOSED) / (EAR_OPEN - EAR_CLOSED), 0, 1)
+
+    // Hysteresis: count up when clearly closed, decay slowly when clearly open,
+    // hold steady in the middle to prevent oscillation while squinting
     if (openFactor < 0.1) {
       this.closedFrames = Math.min(this.closedFrames + 1, SUSTAINED_FRAMES)
-    } else {
-      this.closedFrames = 0
+    } else if (openFactor > 0.4) {
+      this.closedFrames = Math.max(this.closedFrames - 3, 0)
     }
 
     // Quick blink: barely nudges lid; sustained close: lid fully shuts
